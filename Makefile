@@ -13,14 +13,16 @@ CONFIG_FILE := $(CONFIG_DIR)/config.toml
 
 ## setup: 初回セットアップ（config.toml 配置 + 依存取得 + 環境変数チェック）
 setup:
-	@mkdir -p $(CONFIG_DIR)
+	@install -d -m 700 $(CONFIG_DIR)
+	@chmod 700 $(CONFIG_DIR)
 	@if [ -f $(CONFIG_FILE) ]; then \
-		echo "config: $(CONFIG_FILE) (already exists, skip)"; \
+		echo "config: $(CONFIG_FILE) (already exists, enforce perms)"; \
 	else \
 		cp config.example.toml $(CONFIG_FILE); \
 		echo "config: $(CONFIG_FILE) (created)"; \
 		echo "  → domain を自分の Backlog スペースに書き換えてください"; \
 	fi
+	@chmod 600 $(CONFIG_FILE)
 	@go mod download
 	@go mod tidy
 	@if [ -z "$$BACKLOG_API_KEY" ]; then \
