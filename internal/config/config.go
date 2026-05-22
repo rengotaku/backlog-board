@@ -19,6 +19,10 @@ type Config struct {
 	CachePath       string        `toml:"cache_path"`
 	ShutdownTimeout time.Duration `toml:"shutdown_timeout"`
 	FetchInterval   time.Duration `toml:"fetch_interval"`
+	// AllowedLinkPrefixes はコメント本文中の [text](url) を <a href> として有効化する
+	// URL prefix の追加 allowlist。https://<Domain>/ は自動で許可されるため、ここには
+	// それ以外で許可したい外部 URL を列挙する。空の場合は外部 URL は無効化 (#) される。
+	AllowedLinkPrefixes []string `toml:"allowed_link_prefixes"`
 }
 
 const (

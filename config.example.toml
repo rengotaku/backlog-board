@@ -25,3 +25,9 @@ domain = "yourspace.backlog.com"
 
 # 任意: バックグラウンドフェッチの間隔 (デフォルト 15m)
 # fetch_interval = "15m"
+
+# 任意: コメント本文中の [text](url) を <a href> として有効化する URL prefix。
+# 自テナント (https://<domain>/) は自動で許可されるため、ここには
+# それ以外で許可したい外部 URL を列挙する。空の場合は外部 URL は無効化される (href="#")。
+# 例: GitHub の自社 org の特定リポジトリのみ許可:
+# allowed_link_prefixes = ["https://github.com/<org>/<repo>/"]

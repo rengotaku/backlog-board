@@ -22,21 +22,32 @@ import (
 // AllowedHosts: Host ヘッダの allowlist (DNS rebinding 対策)。例: "127.0.0.1:8082", "localhost:8082"。
 // AllowedOrigins: POST 等の state-changing リクエストで許可する Origin/Referer プレフィックス。
 //   例: "http://127.0.0.1:8082", "http://localhost:8082"。
+// LinkAllowPrefixes: コメント本文中の [text](url) リンクを <a href> として有効化する URL prefix。
+//   nil または空 (デフォルト) では http/https/mailse 全許可。非空にすると prefix allowlist で厳格化する。
 type Options struct {
-	AllowedHosts   []string
-	AllowedOrigins []string
+	AllowedHosts      []string
+	AllowedOrigins    []string
+	LinkAllowPrefixes []string
 }
 
 type Handler struct {
-	cache     *store.Cache
-	templates map[string]*template.Template
-	staticFS  fs.FS
-	refresh   func() error
-	opts      Options
+	cache             *store.Cache
+	templates         map[string]*template.Template
+	staticFS          fs.FS
+	refresh           func() error
+	opts              Options
+	linkAllowPrefixes []string
 }
 
 func New(cache *store.Cache, templates map[string]*template.Template, staticFS fs.FS, refresh func() error, opts Options) *Handler {
-	return &Handler{cache: cache, templates: templates, staticFS: staticFS, refresh: refresh, opts: opts}
+	return &Handler{
+		cache:             cache,
+		templates:         templates,
+		staticFS:          staticFS,
+		refresh:           refresh,
+		opts:              opts,
+		linkAllowPrefixes: opts.LinkAllowPrefixes,
+	}
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -302,12 +313,12 @@ func (h *Handler) handleIndex(c *gin.Context) {
 	data.Total = len(snap.Records)
 	data.Counts = countByStatus(snap.Records)
 	data.StatusOrder = statusOrder
-	data.Buckets = buildMentionBuckets(snap, time.Now())
+	data.Buckets = h.buildMentionBuckets(snap, time.Now())
 	now := time.Now()
-	data.MyIssueGroups = buildMyIssueGroups(snap, now)
-	data.MyIssueActive = buildMyIssueActive(snap, now)
-	data.MyIssuePassed = buildMyIssuePassed(snap, now)
-	data.MyIssueKanban = buildMyIssueKanban(snap, now)
+	data.MyIssueGroups = h.buildMyIssueGroups(snap, now)
+	data.MyIssueActive = h.buildMyIssueActive(snap, now)
+	data.MyIssuePassed = h.buildMyIssuePassed(snap, now)
+	data.MyIssueKanban = h.buildMyIssueKanban(snap, now)
 	data.MyIssueTotal = len(snap.MyIssues)
 	data.APICallCount = snap.APICallCount
 
@@ -354,7 +365,7 @@ func countByStatus(records []backlog.Record) map[string]int {
 	return m
 }
 
-func toRecordView(snap *backlog.Snapshot, now time.Time, r backlog.Record) recordView {
+func (h *Handler) toRecordView(snap *backlog.Snapshot, now time.Time, r backlog.Record) recordView {
 	return recordView{
 		NotificationID:      r.NotificationID,
 		NotifiedAtJST:       fallbackJST(r),
@@ -372,7 +383,7 @@ func toRecordView(snap *backlog.Snapshot, now time.Time, r backlog.Record) recor
 		IssueURL:            r.IssueURL,
 		CommentURL:          r.CommentURL,
 		CommentHistoryTitle: r.CommentHistoryTitle,
-		CommentHistory:      template.HTML(renderHistory(r.CommentHistory)),
+		CommentHistory:      template.HTML(h.renderHistory(r.CommentHistory)),
 		Starred:             r.Starred,
 		Replied:             r.Replied,
 		AtMentioned:         r.AtMentioned,
@@ -448,7 +459,7 @@ func humanizeSince(now time.Time, isoUTC string) string {
 
 // 各メンションを個別に時間バケットへ振り分ける（IssueKey 集約はしない）。
 // 同じ課題への複数メンションは独立した行として時系列に並ぶ。
-func buildMentionBuckets(snap *backlog.Snapshot, now time.Time) []mentionBucket {
+func (h *Handler) buildMentionBuckets(snap *backlog.Snapshot, now time.Time) []mentionBucket {
 	sorted := make([]backlog.Record, len(snap.Records))
 	copy(sorted, snap.Records)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].NotifiedAt > sorted[j].NotifiedAt })
@@ -456,7 +467,7 @@ func buildMentionBuckets(snap *backlog.Snapshot, now time.Time) []mentionBucket 
 	bucketRecords := map[string][]recordView{}
 	for _, r := range sorted {
 		slug := bucketSlugFor(now, r.NotifiedAt)
-		bucketRecords[slug] = append(bucketRecords[slug], toRecordView(snap, now, r))
+		bucketRecords[slug] = append(bucketRecords[slug], h.toRecordView(snap, now, r))
 	}
 
 	result := make([]mentionBucket, 0, len(mentionBucketDefs))
@@ -475,7 +486,7 @@ func buildMentionBuckets(snap *backlog.Snapshot, now time.Time) []mentionBucket 
 	return result
 }
 
-func toMyIssueView(r backlog.MyIssueRecord, now time.Time) myIssueView {
+func (h *Handler) toMyIssueView(r backlog.MyIssueRecord, now time.Time) myIssueView {
 	return myIssueView{
 		IssueKey:              r.IssueKey,
 		IssueSummary:          r.IssueSummary,
@@ -491,7 +502,7 @@ func toMyIssueView(r backlog.MyIssueRecord, now time.Time) myIssueView {
 		LatestSince:           humanizeSince(now, r.UpdatedAt),
 		LatestSinceJST:        r.UpdatedAtJST,
 		CommentHistoryTitle:   r.CommentHistoryTitle,
-		CommentHistory:        template.HTML(renderHistory(r.CommentHistory)),
+		CommentHistory:        template.HTML(h.renderHistory(r.CommentHistory)),
 	}
 }
 
@@ -499,7 +510,7 @@ func toMyIssueView(r backlog.MyIssueRecord, now time.Time) myIssueView {
 // メンションと同じ時間バケット (1h / 6h / 24h / 1w / 1m / older) に振り分けて返す。
 // 各バケット内は effective time 降順、空バケットは除外する。
 // 並びキーは Backlog の RFC3339 UTC 文字列をそのまま辞書順比較で使う（時刻順と一致する）。
-func buildMyIssueActive(snap *backlog.Snapshot, now time.Time) []myIssueBucket {
+func (h *Handler) buildMyIssueActive(snap *backlog.Snapshot, now time.Time) []myIssueBucket {
 	recs := make([]backlog.MyIssueRecord, len(snap.MyIssues))
 	copy(recs, snap.MyIssues)
 	keyOf := func(r backlog.MyIssueRecord) string {
@@ -515,7 +526,7 @@ func buildMyIssueActive(snap *backlog.Snapshot, now time.Time) []myIssueBucket {
 	bySlug := map[string][]myIssueView{}
 	for _, r := range recs {
 		eff := keyOf(r)
-		v := toMyIssueView(r, now)
+		v := h.toMyIssueView(r, now)
 		v.LatestSince = humanizeSince(now, eff)
 		// active モードでは活動が更新より新しい場合のみ tooltip も活動時刻に揃える
 		if r.LastUserActivityAt > r.UpdatedAt && r.LastUserActivityAtJST != "" {
@@ -544,7 +555,7 @@ func buildMyIssueActive(snap *backlog.Snapshot, now time.Time) []myIssueBucket {
 // kanban: MyIssueStatusOrder の displayOrder に従って全ステータスを列にし、各 issue を IssueStatus で
 // 分配する。同一列内は UpdatedAt 降順。0 件のステータス列もそのまま描画する（プロセス全体を一望する
 // 用途）。MyIssueStatusOrder に乗っていない未知ステータスは末尾の追加列としてマージする。
-func buildMyIssueKanban(snap *backlog.Snapshot, now time.Time) []myIssueKanbanColumn {
+func (h *Handler) buildMyIssueKanban(snap *backlog.Snapshot, now time.Time) []myIssueKanbanColumn {
 	statuses := make([]string, 0, len(snap.MyIssueStatusOrder))
 	seen := map[string]bool{}
 	for _, s := range snap.MyIssueStatusOrder {
@@ -569,7 +580,7 @@ func buildMyIssueKanban(snap *backlog.Snapshot, now time.Time) []myIssueKanbanCo
 		return recs[i].UpdatedAt > recs[j].UpdatedAt
 	})
 	for _, r := range recs {
-		byStatus[r.IssueStatus] = append(byStatus[r.IssueStatus], toMyIssueView(r, now))
+		byStatus[r.IssueStatus] = append(byStatus[r.IssueStatus], h.toMyIssueView(r, now))
 	}
 
 	out := make([]myIssueKanbanColumn, 0, len(statuses))
@@ -586,7 +597,7 @@ func buildMyIssueKanban(snap *backlog.Snapshot, now time.Time) []myIssueKanbanCo
 
 // パス済み: 自分から他人に担当を振り直した直近の課題を時系列降順で並べる。
 // snapshot.PassedIssues は既に降順ソート済みなので、ここでは表示用整形のみを行う。
-func buildMyIssuePassed(snap *backlog.Snapshot, now time.Time) []passedIssueView {
+func (h *Handler) buildMyIssuePassed(snap *backlog.Snapshot, now time.Time) []passedIssueView {
 	out := make([]passedIssueView, 0, len(snap.PassedIssues))
 	for _, r := range snap.PassedIssues {
 		out = append(out, passedIssueView{
@@ -597,13 +608,13 @@ func buildMyIssuePassed(snap *backlog.Snapshot, now time.Time) []passedIssueView
 			PassedTo:            r.PassedTo,
 			IssueURL:            r.IssueURL,
 			CommentHistoryTitle: r.CommentHistoryTitle,
-			CommentHistory:      template.HTML(renderHistory(r.CommentHistory)),
+			CommentHistory:      template.HTML(h.renderHistory(r.CommentHistory)),
 		})
 	}
 	return out
 }
 
-func buildMyIssueGroups(snap *backlog.Snapshot, now time.Time) []myIssueGroup {
+func (h *Handler) buildMyIssueGroups(snap *backlog.Snapshot, now time.Time) []myIssueGroup {
 	// Collect which issue IDs appear as a parent of another issue in the list
 	parentIDs := map[int]bool{}
 	for _, r := range snap.MyIssues {
@@ -622,13 +633,13 @@ func buildMyIssueGroups(snap *backlog.Snapshot, now time.Time) []myIssueGroup {
 
 	for _, r := range snap.MyIssues {
 		if r.ParentIssueID > 0 {
-			grouped[r.ParentIssueID] = append(grouped[r.ParentIssueID], toMyIssueView(r, now))
+			grouped[r.ParentIssueID] = append(grouped[r.ParentIssueID], h.toMyIssueView(r, now))
 			if _, ok := meta[r.ParentIssueID]; !ok {
 				meta[r.ParentIssueID] = parentMeta{r.ParentIssueKey, r.ParentIssueSummary, r.ParentIssueURL}
 			}
 		} else if !parentIDs[r.IssueID] {
 			// No parent and not itself a parent of others → standalone
-			standalone = append(standalone, toMyIssueView(r, now))
+			standalone = append(standalone, h.toMyIssueView(r, now))
 		}
 		// If this issue IS a parent of others in the list, skip it from standalone;
 		// it will appear only as a group header.
@@ -694,7 +705,7 @@ func isStale(iso string, threshold time.Duration) bool {
 // renderHistory turns the markdown comment history into a minimal HTML
 // fragment. Each ### block becomes a div.comment-block; the mention source
 // gets an additional "mention-source" class for background highlighting.
-func renderHistory(md string) string {
+func (h *Handler) renderHistory(md string) string {
 	if strings.TrimSpace(md) == "" {
 		return ""
 	}
@@ -719,11 +730,11 @@ func renderHistory(md string) string {
 			}
 			fmt.Fprintf(&b, `<div class="%s">`, classes)
 			inBlock = true
-			fmt.Fprintf(&b, "<h5>%s</h5>", renderInline(body))
+			fmt.Fprintf(&b, "<h5>%s</h5>", h.renderInline(body))
 		case line == "":
 			// skip
 		default:
-			fmt.Fprintf(&b, "<p>%s</p>", renderInline(line))
+			fmt.Fprintf(&b, "<p>%s</p>", h.renderInline(line))
 		}
 	}
 	if inBlock {
@@ -733,24 +744,35 @@ func renderHistory(md string) string {
 	return b.String()
 }
 
-// safeURL returns raw if its scheme is in the allowlist (http, https, mailto),
-// otherwise "#". Backlog コメント本文に javascript: / data: / vbscript: が混入した
-// ケースで <a href="javascript:..."> として XSS が成立しないよう、リンク化前に
-// 必ずこの関数を通す。
-func safeURL(raw string) string {
+// safeURL は scheme allowlist + 任意の URL prefix allowlist を満たすときだけ raw を返し、
+// それ以外は "#" を返す。
+//   - scheme: http / https / mailto のみ常時 OK。javascript: / data: / vbscript: 等は常時拒否。
+//   - prefix: h.linkAllowPrefixes が空なら scheme チェックのみで通す（デフォルト動作）。
+//     非空ならいずれかの prefix と前方一致しない URL は "#" に置換する。
+//     これにより「自テナント + 明示許可した GitHub 等のみリンク化」という運用が可能。
+func (h *Handler) safeURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return "#"
 	}
 	switch strings.ToLower(u.Scheme) {
 	case "http", "https", "mailto":
+	default:
+		return "#"
+	}
+	if len(h.linkAllowPrefixes) == 0 {
 		return raw
+	}
+	for _, p := range h.linkAllowPrefixes {
+		if strings.HasPrefix(raw, p) {
+			return raw
+		}
 	}
 	return "#"
 }
 
 // renderInline handles only [text](url) links in the markdown subset we emit.
-func renderInline(s string) string {
+func (h *Handler) renderInline(s string) string {
 	var b strings.Builder
 	for {
 		i := strings.Index(s, "[")
@@ -774,7 +796,7 @@ func renderInline(s string) string {
 		}
 		rawURL := rest[:close]
 		fmt.Fprintf(&b, `<a href="%s" target="_blank" rel="noopener">%s</a>`,
-			template.HTMLEscapeString(safeURL(rawURL)),
+			template.HTMLEscapeString(h.safeURL(rawURL)),
 			template.HTMLEscapeString(text),
 		)
 		s = rest[close+1:]

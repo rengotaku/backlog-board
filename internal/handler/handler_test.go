@@ -8,7 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestSafeURL(t *testing.T) {
+func TestSafeURL_NoAllowlist(t *testing.T) {
+	h := &Handler{} // linkAllowPrefixes 未設定 → scheme チェックのみ
 	tests := []struct {
 		name string
 		in   string
@@ -27,7 +28,36 @@ func TestSafeURL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := safeURL(tt.in); got != tt.want {
+			if got := h.safeURL(tt.in); got != tt.want {
+				t.Errorf("safeURL(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSafeURL_WithAllowlist(t *testing.T) {
+	// 「自テナント (Backlog) + 業務 GitHub repo のみ許可」のシナリオ。
+	h := &Handler{linkAllowPrefixes: []string{
+		"https://jccapital.backlog.com/",
+		"https://github.com/jccapital/fundoor/",
+	}}
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"backlog tenant root", "https://jccapital.backlog.com/view/X-1", "https://jccapital.backlog.com/view/X-1"},
+		{"github allowed repo path", "https://github.com/jccapital/fundoor/pull/1", "https://github.com/jccapital/fundoor/pull/1"},
+		{"github other repo blocked", "https://github.com/jccapital/other-repo/pull/1", "#"},
+		{"unrelated https blocked", "https://example.com/", "#"},
+		{"unrelated http blocked", "http://example.com/", "#"},
+		{"mailto blocked when allowlist set", "mailto:me@example.com", "#"},
+		{"javascript still blocked", "javascript:alert(1)", "#"},
+		{"prefix substring not matched", "https://jccapital.backlog.com.evil.example/", "#"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := h.safeURL(tt.in); got != tt.want {
 				t.Errorf("safeURL(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
@@ -37,13 +67,28 @@ func TestSafeURL(t *testing.T) {
 func TestRenderInlineBlocksJavascript(t *testing.T) {
 	// Backlog コメントに混入した [click](javascript:...) が renderInline を通すと
 	// href="javascript:..." として出力されないこと（安全な "#" に置換される）。
+	h := &Handler{}
 	in := `[click](javascript:alert(1))`
-	got := renderInline(in)
+	got := h.renderInline(in)
 	if contains(got, "javascript:") {
 		t.Errorf("renderInline kept javascript: scheme; out=%q", got)
 	}
 	if !contains(got, `href="#"`) {
 		t.Errorf("renderInline did not replace href with #; out=%q", got)
+	}
+}
+
+func TestRenderInline_AllowlistEnforced(t *testing.T) {
+	h := &Handler{linkAllowPrefixes: []string{"https://jccapital.backlog.com/"}}
+	got := h.renderInline(`[blocked](https://external.example/x) [ok](https://jccapital.backlog.com/view/X-1)`)
+	if contains(got, `href="https://external.example/x"`) {
+		t.Errorf("external link should be neutralized; out=%q", got)
+	}
+	if !contains(got, `href="#"`) {
+		t.Errorf("external link should become href=#; out=%q", got)
+	}
+	if !contains(got, `href="https://jccapital.backlog.com/view/X-1"`) {
+		t.Errorf("allowed link should pass through; out=%q", got)
 	}
 }
 
