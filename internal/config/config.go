@@ -14,6 +14,7 @@ import (
 // (BACKLOG_API_KEY, LOG_LEVEL) and are not part of this struct.
 type Config struct {
 	Domain          string        `toml:"domain"`
+	ListenAddr      string        `toml:"listen_addr"`
 	Port            string        `toml:"port"`
 	CachePath       string        `toml:"cache_path"`
 	ShutdownTimeout time.Duration `toml:"shutdown_timeout"`
@@ -21,6 +22,7 @@ type Config struct {
 }
 
 const (
+	defaultListenAddr      = "127.0.0.1"
 	defaultPort            = "8082"
 	defaultShutdownTimeout = 10 * time.Second
 	defaultFetchInterval   = 15 * time.Minute
@@ -67,6 +69,9 @@ func DefaultPath() (string, error) {
 }
 
 func (c *Config) applyDefaults() error {
+	if c.ListenAddr == "" {
+		c.ListenAddr = defaultListenAddr
+	}
 	if c.Port == "" {
 		c.Port = defaultPort
 	}

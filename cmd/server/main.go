@@ -101,7 +101,7 @@ func run() error {
 	h := handler.New(cache, templates, staticFiles, refreshFn)
 
 	srv := &http.Server{
-		Addr:         ":" + cfg.Port,
+		Addr:         cfg.ListenAddr + ":" + cfg.Port,
 		Handler:      h.Routes(),
 		ReadTimeout:  60 * time.Second,
 		WriteTimeout: 60 * time.Second,
@@ -109,7 +109,7 @@ func run() error {
 	}
 
 	go func() {
-		slog.Info("starting server", "port", cfg.Port, "cache", cfg.CachePath)
+		slog.Info("starting server", "addr", srv.Addr, "cache", cfg.CachePath)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("server error", "error", err)
 			os.Exit(1)
