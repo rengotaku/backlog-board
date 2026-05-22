@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -669,6 +670,22 @@ func renderHistory(md string) string {
 	return b.String()
 }
 
+// safeURL returns raw if its scheme is in the allowlist (http, https, mailto),
+// otherwise "#". Backlog コメント本文に javascript: / data: / vbscript: が混入した
+// ケースで <a href="javascript:..."> として XSS が成立しないよう、リンク化前に
+// 必ずこの関数を通す。
+func safeURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "#"
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https", "mailto":
+		return raw
+	}
+	return "#"
+}
+
 // renderInline handles only [text](url) links in the markdown subset we emit.
 func renderInline(s string) string {
 	var b strings.Builder
@@ -692,9 +709,9 @@ func renderInline(s string) string {
 			b.WriteString(template.HTMLEscapeString(s[i:]))
 			break
 		}
-		url := rest[:close]
+		rawURL := rest[:close]
 		fmt.Fprintf(&b, `<a href="%s" target="_blank" rel="noopener">%s</a>`,
-			template.HTMLEscapeString(url),
+			template.HTMLEscapeString(safeURL(rawURL)),
 			template.HTMLEscapeString(text),
 		)
 		s = rest[close+1:]
