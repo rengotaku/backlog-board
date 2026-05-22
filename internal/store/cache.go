@@ -44,7 +44,9 @@ func (c *Cache) previousPath() string {
 }
 
 func (c *Cache) Save(s *backlog.Snapshot) error {
-	if err := os.MkdirAll(filepath.Dir(c.Path), 0o755); err != nil {
+	// snapshot.json には Backlog 通知本文・担当チケット・コメント履歴が入るため、
+	// マルチユーザー機で他ユーザーに読まれないよう dir 0o700 / file 0o600 で扱う。
+	if err := os.MkdirAll(filepath.Dir(c.Path), 0o700); err != nil {
 		return err
 	}
 	b, err := json.MarshalIndent(s, "", "  ")
@@ -52,12 +54,19 @@ func (c *Cache) Save(s *backlog.Snapshot) error {
 		return err
 	}
 	tmp := c.Path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
 	// 差分計算用に直前 snapshot を .previous へ退避（ベストエフォート）。
 	if _, err := os.Stat(c.Path); err == nil {
 		_ = os.Rename(c.Path, c.previousPath())
+		// 旧バージョン時代に 0o644 で書かれた .previous が残るケースに備え、明示的に絞る。
+		_ = os.Chmod(c.previousPath(), 0o600)
 	}
-	return os.Rename(tmp, c.Path)
+	if err := os.Rename(tmp, c.Path); err != nil {
+		return err
+	}
+	// Rename は元 tmp の権限を維持するが、念のため最終ファイルも 0o600 を保証する。
+	_ = os.Chmod(c.Path, 0o600)
+	return nil
 }
