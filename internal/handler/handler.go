@@ -18,20 +18,32 @@ import (
 	"github.com/rengotaku/backlog-board/internal/store"
 )
 
+// Options は handler が受け持つセキュリティ系の許可リストをまとめる。
+// AllowedHosts: Host ヘッダの allowlist (DNS rebinding 対策)。例: "127.0.0.1:8082", "localhost:8082"。
+// AllowedOrigins: POST 等の state-changing リクエストで許可する Origin/Referer プレフィックス。
+//   例: "http://127.0.0.1:8082", "http://localhost:8082"。
+type Options struct {
+	AllowedHosts   []string
+	AllowedOrigins []string
+}
+
 type Handler struct {
 	cache     *store.Cache
 	templates map[string]*template.Template
 	staticFS  fs.FS
 	refresh   func() error
+	opts      Options
 }
 
-func New(cache *store.Cache, templates map[string]*template.Template, staticFS fs.FS, refresh func() error) *Handler {
-	return &Handler{cache: cache, templates: templates, staticFS: staticFS, refresh: refresh}
+func New(cache *store.Cache, templates map[string]*template.Template, staticFS fs.FS, refresh func() error, opts Options) *Handler {
+	return &Handler{cache: cache, templates: templates, staticFS: staticFS, refresh: refresh, opts: opts}
 }
 
 func (h *Handler) Routes() http.Handler {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
+	r.Use(requireAllowedHost(h.opts.AllowedHosts))
+	r.Use(requireSameOrigin(h.opts.AllowedOrigins))
 	r.StaticFS("/static", http.FS(h.staticFS))
 	r.GET("/", h.handleIndex)
 	r.GET("/healthz", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
@@ -40,6 +52,57 @@ func (h *Handler) Routes() http.Handler {
 		r.POST("/api/refresh", h.handleRefresh)
 	}
 	return r
+}
+
+// requireAllowedHost は Host ヘッダが allowlist に含まれない場合 403 を返す。
+// DNS rebinding 攻撃で attacker.example が 127.0.0.1 に解決されるシナリオを遮断する。
+// allowed が空の場合は素通し（テスト等）。
+func requireAllowedHost(allowed []string) gin.HandlerFunc {
+	if len(allowed) == 0 {
+		return func(c *gin.Context) { c.Next() }
+	}
+	set := make(map[string]bool, len(allowed))
+	for _, h := range allowed {
+		set[h] = true
+	}
+	return func(c *gin.Context) {
+		if !set[c.Request.Host] {
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
+		c.Next()
+	}
+}
+
+// requireSameOrigin は state-changing メソッド (POST/PUT/DELETE/PATCH) で
+// Origin / Referer ヘッダが allowlist に prefix 一致しない場合 403 を返す。
+// allowed が空の場合は素通し（テスト等）。
+func requireSameOrigin(allowed []string) gin.HandlerFunc {
+	if len(allowed) == 0 {
+		return func(c *gin.Context) { c.Next() }
+	}
+	return func(c *gin.Context) {
+		switch c.Request.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			c.Next()
+			return
+		}
+		origin := c.GetHeader("Origin")
+		if origin == "" {
+			origin = c.GetHeader("Referer")
+		}
+		if origin == "" {
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
+		for _, prefix := range allowed {
+			if strings.HasPrefix(origin, prefix) {
+				c.Next()
+				return
+			}
+		}
+		c.AbortWithStatus(http.StatusForbidden)
+	}
 }
 
 // handleState は開いたページがポーリングで参照する軽量エンドポイント。

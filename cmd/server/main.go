@@ -98,7 +98,28 @@ func run() error {
 		}()
 	}
 
-	h := handler.New(cache, templates, staticFiles, refreshFn)
+	// Host / Origin allowlist は listenAddr に応じて組み立てる。
+	// LAN 公開 (listenAddr != 127.0.0.1) の場合は listenAddr 自身も許可リストに加える。
+	hostPort := cfg.ListenAddr + ":" + cfg.Port
+	allowedHosts := []string{
+		"127.0.0.1:" + cfg.Port,
+		"localhost:" + cfg.Port,
+		"[::1]:" + cfg.Port,
+	}
+	allowedOrigins := []string{
+		"http://127.0.0.1:" + cfg.Port,
+		"http://localhost:" + cfg.Port,
+		"http://[::1]:" + cfg.Port,
+	}
+	if cfg.ListenAddr != "127.0.0.1" && cfg.ListenAddr != "" {
+		allowedHosts = append(allowedHosts, hostPort)
+		allowedOrigins = append(allowedOrigins, "http://"+hostPort)
+	}
+
+	h := handler.New(cache, templates, staticFiles, refreshFn, handler.Options{
+		AllowedHosts:   allowedHosts,
+		AllowedOrigins: allowedOrigins,
+	})
 
 	srv := &http.Server{
 		Addr:         cfg.ListenAddr + ":" + cfg.Port,
