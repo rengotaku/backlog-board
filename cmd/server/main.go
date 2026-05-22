@@ -116,9 +116,23 @@ func run() error {
 		allowedOrigins = append(allowedOrigins, "http://"+hostPort)
 	}
 
+	// Link allowlist の組み立て:
+	//   - cfg.AllowedLinkPrefixes が nil（TOML で未指定）→ allowlist 非適用、http/https/mailto は素通し
+	//   - non-nil → 厳格モード。自テナント (https://<domain>/) を先頭に自動追加して、
+	//     その上に user-supplied prefix を後置する
+	var linkAllowPrefixes []string
+	if cfg.AllowedLinkPrefixes != nil {
+		linkAllowPrefixes = make([]string, 0, len(cfg.AllowedLinkPrefixes)+1)
+		if cfg.Domain != "" {
+			linkAllowPrefixes = append(linkAllowPrefixes, "https://"+cfg.Domain+"/")
+		}
+		linkAllowPrefixes = append(linkAllowPrefixes, cfg.AllowedLinkPrefixes...)
+	}
+
 	h := handler.New(cache, templates, staticFiles, refreshFn, handler.Options{
-		AllowedHosts:   allowedHosts,
-		AllowedOrigins: allowedOrigins,
+		AllowedHosts:      allowedHosts,
+		AllowedOrigins:    allowedOrigins,
+		LinkAllowPrefixes: linkAllowPrefixes,
 	})
 
 	srv := &http.Server{
