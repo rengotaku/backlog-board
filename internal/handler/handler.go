@@ -1,0 +1,703 @@
+package handler
+
+import (
+	"errors"
+	"fmt"
+	"html/template"
+	"io/fs"
+	"net/http"
+	"os"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/rengotaku/backlog-board/internal/backlog"
+	"github.com/rengotaku/backlog-board/internal/store"
+)
+
+type Handler struct {
+	cache     *store.Cache
+	templates map[string]*template.Template
+	staticFS  fs.FS
+	refresh   func() error
+}
+
+func New(cache *store.Cache, templates map[string]*template.Template, staticFS fs.FS, refresh func() error) *Handler {
+	return &Handler{cache: cache, templates: templates, staticFS: staticFS, refresh: refresh}
+}
+
+func (h *Handler) Routes() http.Handler {
+	r := gin.New()
+	r.Use(gin.Logger(), gin.Recovery())
+	r.StaticFS("/static", http.FS(h.staticFS))
+	r.GET("/", h.handleIndex)
+	r.GET("/healthz", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+	r.GET("/api/state", h.handleState)
+	if h.refresh != nil {
+		r.POST("/api/refresh", h.handleRefresh)
+	}
+	return r
+}
+
+// handleState は開いたページがポーリングで参照する軽量エンドポイント。
+// 現行 snapshot の fetched_at と、前世代との差分カウント（未対応 / CC / 対応済）を返す。
+func (h *Handler) handleState(c *gin.Context) {
+	snap, err := h.cache.Load()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"fetched_at": "",
+			"diff":       emptyDiff(),
+		})
+		return
+	}
+	prev, _ := h.cache.LoadPrevious() // 無くても nil 扱いで進める
+	c.JSON(http.StatusOK, gin.H{
+		"fetched_at": snap.FetchedAt,
+		"diff":       computeMentionDiff(snap, prev),
+	})
+}
+
+type diffCounts struct {
+	Total    int            `json:"total"`
+	ByStatus map[string]int `json:"by_status"`
+}
+
+func emptyDiff() diffCounts {
+	return diffCounts{
+		Total: 0,
+		ByStatus: map[string]int{
+			backlog.StatusUnhandled: 0,
+			backlog.StatusCC:        0,
+			backlog.StatusHandled:   0,
+		},
+	}
+}
+
+// computeMentionDiff は current / previous のメンション差分を、最新ステータス別に集計する。
+// 「差分」とは: 前世代に存在しなかった NotificationID（新規メンション）、
+// または前世代から Status が変化した NotificationID。
+func computeMentionDiff(current, previous *backlog.Snapshot) diffCounts {
+	d := emptyDiff()
+	if current == nil {
+		return d
+	}
+	prev := map[int64]string{}
+	if previous != nil {
+		for _, r := range previous.Records {
+			prev[r.NotificationID] = r.Status
+		}
+	}
+	for _, r := range current.Records {
+		prevStatus, existed := prev[r.NotificationID]
+		if !existed || prevStatus != r.Status {
+			d.ByStatus[displayStatus(r.Status)]++
+			d.Total++
+		}
+	}
+	return d
+}
+
+func (h *Handler) handleRefresh(c *gin.Context) {
+	if err := h.refresh(); err != nil {
+		c.String(http.StatusInternalServerError, "fetch error: "+err.Error())
+		return
+	}
+	c.Redirect(http.StatusSeeOther, "/")
+}
+
+type viewData struct {
+	Title          string
+	FetchedAt      string
+	FetchedAtJST   string
+	FetchedSince   string
+	CacheStale     bool
+	Counts         map[string]int
+	StatusOrder    []string
+	Buckets        []mentionBucket
+	Total          int
+	Error          string
+	Domain         string
+	OwnUserName    string
+	UnhandledFirst bool
+	MyIssueGroups  []myIssueGroup
+	MyIssueActive  []myIssueBucket
+	MyIssuePassed  []passedIssueView
+	MyIssueKanban  []myIssueKanbanColumn
+	MyIssueTotal   int
+	CanRefresh     bool
+	APICallCount   int
+}
+
+// myIssueKanbanColumn は kanban モード用の 1 ステータス列。
+// Issues は LatestSince (= UpdatedAt) 降順で並ぶ。Count は 0 でも列自体は描画する
+// （プロセス全体を一望するため）。表示/非表示は LocalStorage で制御する。
+type myIssueKanbanColumn struct {
+	Status string
+	Issues []myIssueView
+	Count  int
+}
+
+type passedIssueView struct {
+	IssueKey            string
+	IssueSummary        string
+	PassedAtJST         string
+	PassedSince         string
+	PassedTo            string
+	IssueURL            string
+	CommentHistoryTitle string
+	CommentHistory      template.HTML
+}
+
+type mentionBucket struct {
+	Label   string
+	Slug    string
+	Records []recordView
+	Count   int
+}
+
+type myIssueGroup struct {
+	HasParent      bool
+	ParentKey      string
+	ParentSummary  string
+	ParentURL      string
+	Issues         []myIssueView
+}
+
+type myIssueBucket struct {
+	Label  string
+	Slug   string
+	Issues []myIssueView
+	Count  int
+}
+
+type myIssueView struct {
+	IssueKey              string
+	IssueSummary          string
+	IssueStatus           string
+	Priority              string
+	IssueType             string
+	Creator               string
+	DueDate               string
+	UpdatedAtJST          string
+	IssueURL              string
+	Overdue               bool
+	LastUserActivityAtJST string
+	// 状態 badge の右に表示する経過時間ラベル（例: "20時間前"）。
+	// group/kanban モードでは UpdatedAt 起点、active モードでは max(活動, 更新) 起点。
+	LatestSince         string
+	LatestSinceJST      string
+	CommentHistoryTitle string
+	CommentHistory      template.HTML
+}
+
+type recordView struct {
+	NotificationID int64
+	NotifiedAtJST  string
+	NotifiedSince  string
+	IssueKey       string
+	IssueSummary   string
+	IssueStatus    string
+	Status         string
+	Sender         string
+	Assignee       string
+	Creator        string
+	ContentExcerpt string
+	IssueURL       string
+	CommentURL     string
+	CommentHistoryTitle string
+	CommentHistory      template.HTML
+	IsAssignee     bool
+	IsCreator      bool
+	Starred        bool
+	Replied        bool
+	AtMentioned    bool
+}
+
+func (h *Handler) handleIndex(c *gin.Context) {
+	data := viewData{Title: "Backlog board", UnhandledFirst: true, CanRefresh: h.refresh != nil}
+
+	snap, err := h.cache.Load()
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			data.Error = "キャッシュがまだ作成されていません。fetch を実行してください。"
+		} else {
+			data.Error = fmt.Sprintf("キャッシュ読み込みエラー: %v", err)
+		}
+		h.render(c, "index.html", http.StatusOK, data)
+		return
+	}
+
+	data.Domain = snap.Domain
+	data.OwnUserName = snap.OwnUserName
+	data.FetchedAt = snap.FetchedAt
+	data.FetchedAtJST = formatFetchedJST(snap.FetchedAt)
+	data.FetchedSince = humanizeSince(time.Now(), snap.FetchedAt)
+	data.CacheStale = isStale(snap.FetchedAt, 30*time.Minute)
+	data.Total = len(snap.Records)
+	data.Counts = countByStatus(snap.Records)
+	data.StatusOrder = statusOrder
+	data.Buckets = buildMentionBuckets(snap, time.Now())
+	now := time.Now()
+	data.MyIssueGroups = buildMyIssueGroups(snap, now)
+	data.MyIssueActive = buildMyIssueActive(snap, now)
+	data.MyIssuePassed = buildMyIssuePassed(snap, now)
+	data.MyIssueKanban = buildMyIssueKanban(snap, now)
+	data.MyIssueTotal = len(snap.MyIssues)
+	data.APICallCount = snap.APICallCount
+
+	h.render(c, "index.html", http.StatusOK, data)
+}
+
+func (h *Handler) render(c *gin.Context, name string, status int, data any) {
+	t, ok := h.templates[name]
+	if !ok {
+		c.String(http.StatusInternalServerError, "Template error")
+		return
+	}
+	c.Status(status)
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	if err := t.ExecuteTemplate(c.Writer, "base", data); err != nil {
+		c.String(http.StatusInternalServerError, "Template error")
+	}
+}
+
+var statusOrder = []string{
+	backlog.StatusUnhandled,
+	backlog.StatusHandled,
+	backlog.StatusCC,
+}
+
+// displayStatus は内部ステータス（Checked / Replied）を表示用の集約ステータス（対応済）に畳む。
+// 個別カードの ↩ ★ badge で内訳は引き続き判別可能。
+func displayStatus(s string) string {
+	switch s {
+	case backlog.StatusChecked, backlog.StatusReplied:
+		return backlog.StatusHandled
+	}
+	return s
+}
+
+func countByStatus(records []backlog.Record) map[string]int {
+	m := map[string]int{}
+	for _, s := range statusOrder {
+		m[s] = 0
+	}
+	for _, r := range records {
+		m[displayStatus(r.Status)]++
+	}
+	return m
+}
+
+func toRecordView(snap *backlog.Snapshot, now time.Time, r backlog.Record) recordView {
+	return recordView{
+		NotificationID:      r.NotificationID,
+		NotifiedAtJST:       fallbackJST(r),
+		NotifiedSince:       humanizeSince(now, r.NotifiedAt),
+		IssueKey:            r.IssueKey,
+		IssueSummary:        r.IssueSummary,
+		IssueStatus:         r.IssueStatus,
+		Status:              displayStatus(r.Status),
+		Sender:              r.Sender,
+		Assignee:            r.Assignee,
+		Creator:             r.Creator,
+		IsAssignee:          snap.OwnUserName != "" && r.Assignee == snap.OwnUserName,
+		IsCreator:           snap.OwnUserName != "" && r.Creator == snap.OwnUserName,
+		ContentExcerpt:      r.ContentExcerpt,
+		IssueURL:            r.IssueURL,
+		CommentURL:          r.CommentURL,
+		CommentHistoryTitle: r.CommentHistoryTitle,
+		CommentHistory:      template.HTML(renderHistory(r.CommentHistory)),
+		Starred:             r.Starred,
+		Replied:             r.Replied,
+		AtMentioned:         r.AtMentioned,
+	}
+}
+
+// メンションを「課題単位」に集約し、最新通知時刻で時間バケット (1h/6h/24h/1w/それ以前)
+// に振り分ける。空バケットは結果から除外する。
+type mentionBucketDef struct {
+	Label string
+	Slug  string
+	Max   time.Duration // 0 = catch-all (それ以前)
+}
+
+var mentionBucketDefs = []mentionBucketDef{
+	{"1時間以内", "1h", 1 * time.Hour},
+	{"6時間以内", "6h", 6 * time.Hour},
+	{"24時間以内", "24h", 24 * time.Hour},
+	{"1週間以内", "1w", 7 * 24 * time.Hour},
+	{"1ヶ月以内", "1m", 30 * 24 * time.Hour},
+	{"1ヶ月より前", "older", 0},
+}
+
+func parseNotifiedAt(iso string) (time.Time, bool) {
+	if iso == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, strings.Replace(iso, "Z", "+00:00", 1))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
+func bucketSlugFor(now time.Time, isoUTC string) string {
+	t, ok := parseNotifiedAt(isoUTC)
+	if !ok {
+		return "older"
+	}
+	elapsed := now.Sub(t)
+	for _, def := range mentionBucketDefs {
+		if def.Max == 0 {
+			continue
+		}
+		if elapsed <= def.Max {
+			return def.Slug
+		}
+	}
+	return "older"
+}
+
+func humanizeSince(now time.Time, isoUTC string) string {
+	t, ok := parseNotifiedAt(isoUTC)
+	if !ok {
+		return ""
+	}
+	d := now.Sub(t)
+	switch {
+	case d < time.Minute:
+		return "たった今"
+	case d < time.Hour:
+		return fmt.Sprintf("%d分前", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%d時間前", int(d.Hours()))
+	case d < 7*24*time.Hour:
+		return fmt.Sprintf("%d日前", int(d.Hours()/24))
+	case d < 30*24*time.Hour:
+		return fmt.Sprintf("%d週間前", int(d.Hours()/(24*7)))
+	default:
+		return fmt.Sprintf("%dヶ月前", int(d.Hours()/(24*30)))
+	}
+}
+
+// 各メンションを個別に時間バケットへ振り分ける（IssueKey 集約はしない）。
+// 同じ課題への複数メンションは独立した行として時系列に並ぶ。
+func buildMentionBuckets(snap *backlog.Snapshot, now time.Time) []mentionBucket {
+	sorted := make([]backlog.Record, len(snap.Records))
+	copy(sorted, snap.Records)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].NotifiedAt > sorted[j].NotifiedAt })
+
+	bucketRecords := map[string][]recordView{}
+	for _, r := range sorted {
+		slug := bucketSlugFor(now, r.NotifiedAt)
+		bucketRecords[slug] = append(bucketRecords[slug], toRecordView(snap, now, r))
+	}
+
+	result := make([]mentionBucket, 0, len(mentionBucketDefs))
+	for _, def := range mentionBucketDefs {
+		recs := bucketRecords[def.Slug]
+		if len(recs) == 0 {
+			continue
+		}
+		result = append(result, mentionBucket{
+			Label:   def.Label,
+			Slug:    def.Slug,
+			Records: recs,
+			Count:   len(recs),
+		})
+	}
+	return result
+}
+
+func toMyIssueView(r backlog.MyIssueRecord, now time.Time) myIssueView {
+	return myIssueView{
+		IssueKey:              r.IssueKey,
+		IssueSummary:          r.IssueSummary,
+		IssueStatus:           r.IssueStatus,
+		Priority:              r.Priority,
+		IssueType:             r.IssueType,
+		Creator:               r.Creator,
+		DueDate:               r.DueDate,
+		UpdatedAtJST:          r.UpdatedAtJST,
+		IssueURL:              r.IssueURL,
+		Overdue:               r.Overdue,
+		LastUserActivityAtJST: r.LastUserActivityAtJST,
+		LatestSince:           humanizeSince(now, r.UpdatedAt),
+		LatestSinceJST:        r.UpdatedAtJST,
+		CommentHistoryTitle:   r.CommentHistoryTitle,
+		CommentHistory:        template.HTML(renderHistory(r.CommentHistory)),
+	}
+}
+
+// アクティブ順: max(自分の最終活動時刻, チケット更新時刻) を effective time とみなし、
+// メンションと同じ時間バケット (1h / 6h / 24h / 1w / 1m / older) に振り分けて返す。
+// 各バケット内は effective time 降順、空バケットは除外する。
+// 並びキーは Backlog の RFC3339 UTC 文字列をそのまま辞書順比較で使う（時刻順と一致する）。
+func buildMyIssueActive(snap *backlog.Snapshot, now time.Time) []myIssueBucket {
+	recs := make([]backlog.MyIssueRecord, len(snap.MyIssues))
+	copy(recs, snap.MyIssues)
+	keyOf := func(r backlog.MyIssueRecord) string {
+		if r.LastUserActivityAt > r.UpdatedAt {
+			return r.LastUserActivityAt
+		}
+		return r.UpdatedAt
+	}
+	sort.SliceStable(recs, func(i, j int) bool {
+		return keyOf(recs[i]) > keyOf(recs[j])
+	})
+
+	bySlug := map[string][]myIssueView{}
+	for _, r := range recs {
+		eff := keyOf(r)
+		v := toMyIssueView(r, now)
+		v.LatestSince = humanizeSince(now, eff)
+		// active モードでは活動が更新より新しい場合のみ tooltip も活動時刻に揃える
+		if r.LastUserActivityAt > r.UpdatedAt && r.LastUserActivityAtJST != "" {
+			v.LatestSinceJST = r.LastUserActivityAtJST
+		}
+		slug := bucketSlugFor(now, eff)
+		bySlug[slug] = append(bySlug[slug], v)
+	}
+
+	out := make([]myIssueBucket, 0, len(mentionBucketDefs))
+	for _, def := range mentionBucketDefs {
+		issues := bySlug[def.Slug]
+		if len(issues) == 0 {
+			continue
+		}
+		out = append(out, myIssueBucket{
+			Label:  def.Label,
+			Slug:   def.Slug,
+			Issues: issues,
+			Count:  len(issues),
+		})
+	}
+	return out
+}
+
+// kanban: MyIssueStatusOrder の displayOrder に従って全ステータスを列にし、各 issue を IssueStatus で
+// 分配する。同一列内は UpdatedAt 降順。0 件のステータス列もそのまま描画する（プロセス全体を一望する
+// 用途）。MyIssueStatusOrder に乗っていない未知ステータスは末尾の追加列としてマージする。
+func buildMyIssueKanban(snap *backlog.Snapshot, now time.Time) []myIssueKanbanColumn {
+	statuses := make([]string, 0, len(snap.MyIssueStatusOrder))
+	seen := map[string]bool{}
+	for _, s := range snap.MyIssueStatusOrder {
+		if seen[s] {
+			continue
+		}
+		seen[s] = true
+		statuses = append(statuses, s)
+	}
+	// 未知ステータスを末尾に追加（status 一覧取得が失敗したプロジェクトの分など）
+	for _, r := range snap.MyIssues {
+		if r.IssueStatus != "" && !seen[r.IssueStatus] {
+			seen[r.IssueStatus] = true
+			statuses = append(statuses, r.IssueStatus)
+		}
+	}
+
+	byStatus := map[string][]myIssueView{}
+	recs := make([]backlog.MyIssueRecord, len(snap.MyIssues))
+	copy(recs, snap.MyIssues)
+	sort.SliceStable(recs, func(i, j int) bool {
+		return recs[i].UpdatedAt > recs[j].UpdatedAt
+	})
+	for _, r := range recs {
+		byStatus[r.IssueStatus] = append(byStatus[r.IssueStatus], toMyIssueView(r, now))
+	}
+
+	out := make([]myIssueKanbanColumn, 0, len(statuses))
+	for _, s := range statuses {
+		issues := byStatus[s]
+		out = append(out, myIssueKanbanColumn{
+			Status: s,
+			Issues: issues,
+			Count:  len(issues),
+		})
+	}
+	return out
+}
+
+// パス済み: 自分から他人に担当を振り直した直近の課題を時系列降順で並べる。
+// snapshot.PassedIssues は既に降順ソート済みなので、ここでは表示用整形のみを行う。
+func buildMyIssuePassed(snap *backlog.Snapshot, now time.Time) []passedIssueView {
+	out := make([]passedIssueView, 0, len(snap.PassedIssues))
+	for _, r := range snap.PassedIssues {
+		out = append(out, passedIssueView{
+			IssueKey:            r.IssueKey,
+			IssueSummary:        r.IssueSummary,
+			PassedAtJST:         r.PassedAtJST,
+			PassedSince:         humanizeSince(now, r.PassedAt),
+			PassedTo:            r.PassedTo,
+			IssueURL:            r.IssueURL,
+			CommentHistoryTitle: r.CommentHistoryTitle,
+			CommentHistory:      template.HTML(renderHistory(r.CommentHistory)),
+		})
+	}
+	return out
+}
+
+func buildMyIssueGroups(snap *backlog.Snapshot, now time.Time) []myIssueGroup {
+	// Collect which issue IDs appear as a parent of another issue in the list
+	parentIDs := map[int]bool{}
+	for _, r := range snap.MyIssues {
+		if r.ParentIssueID > 0 {
+			parentIDs[r.ParentIssueID] = true
+		}
+	}
+
+	// Group children by parentIssueID; collect parent meta
+	type parentMeta struct {
+		Key, Summary, URL string
+	}
+	grouped := map[int][]myIssueView{}
+	meta := map[int]parentMeta{}
+	var standalone []myIssueView
+
+	for _, r := range snap.MyIssues {
+		if r.ParentIssueID > 0 {
+			grouped[r.ParentIssueID] = append(grouped[r.ParentIssueID], toMyIssueView(r, now))
+			if _, ok := meta[r.ParentIssueID]; !ok {
+				meta[r.ParentIssueID] = parentMeta{r.ParentIssueKey, r.ParentIssueSummary, r.ParentIssueURL}
+			}
+		} else if !parentIDs[r.IssueID] {
+			// No parent and not itself a parent of others → standalone
+			standalone = append(standalone, toMyIssueView(r, now))
+		}
+		// If this issue IS a parent of others in the list, skip it from standalone;
+		// it will appear only as a group header.
+	}
+
+	// Stable sort of groups by parent key
+	type entry struct {
+		pid int
+		m   parentMeta
+	}
+	entries := make([]entry, 0, len(grouped))
+	for pid := range grouped {
+		entries = append(entries, entry{pid, meta[pid]})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].m.Key < entries[j].m.Key })
+
+	var groups []myIssueGroup
+	if len(standalone) > 0 {
+		groups = append(groups, myIssueGroup{HasParent: false, Issues: standalone})
+	}
+	for _, e := range entries {
+		groups = append(groups, myIssueGroup{
+			HasParent:     true,
+			ParentKey:     e.m.Key,
+			ParentSummary: e.m.Summary,
+			ParentURL:     e.m.URL,
+			Issues:        grouped[e.pid],
+		})
+	}
+	return groups
+}
+
+func fallbackJST(r backlog.Record) string {
+	if r.NotifiedAtJST != "" {
+		return r.NotifiedAtJST
+	}
+	return r.NotifiedAt
+}
+
+func formatFetchedJST(iso string) string {
+	if iso == "" {
+		return ""
+	}
+	t, err := time.Parse(time.RFC3339, iso)
+	if err != nil {
+		return iso
+	}
+	jst, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		jst = time.FixedZone("JST", 9*60*60)
+	}
+	return t.In(jst).Format("2006-01-02 15:04")
+}
+
+func isStale(iso string, threshold time.Duration) bool {
+	t, err := time.Parse(time.RFC3339, iso)
+	if err != nil {
+		return true
+	}
+	return time.Since(t) > threshold
+}
+
+// renderHistory turns the markdown comment history into a minimal HTML
+// fragment. Each ### block becomes a div.comment-block; the mention source
+// gets an additional "mention-source" class for background highlighting.
+func renderHistory(md string) string {
+	if strings.TrimSpace(md) == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<div class="history">`)
+	inBlock := false
+	for _, line := range strings.Split(md, "\n") {
+		line = strings.TrimRight(line, " \r")
+		switch {
+		case strings.HasPrefix(line, "### "):
+			if inBlock {
+				b.WriteString("</div>")
+			}
+			body := line[4:]
+			classes := "comment-block"
+			if strings.HasPrefix(body, "[ME] ") {
+				classes += " own-comment"
+				body = body[len("[ME] "):]
+			}
+			if strings.Contains(body, "👈") {
+				classes += " mention-source"
+			}
+			fmt.Fprintf(&b, `<div class="%s">`, classes)
+			inBlock = true
+			fmt.Fprintf(&b, "<h5>%s</h5>", renderInline(body))
+		case line == "":
+			// skip
+		default:
+			fmt.Fprintf(&b, "<p>%s</p>", renderInline(line))
+		}
+	}
+	if inBlock {
+		b.WriteString("</div>")
+	}
+	b.WriteString("</div>")
+	return b.String()
+}
+
+// renderInline handles only [text](url) links in the markdown subset we emit.
+func renderInline(s string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(s, "[")
+		if i < 0 {
+			b.WriteString(template.HTMLEscapeString(s))
+			break
+		}
+		b.WriteString(template.HTMLEscapeString(s[:i]))
+		rest := s[i+1:]
+		end := strings.Index(rest, "](")
+		if end < 0 {
+			b.WriteString(template.HTMLEscapeString(s[i:]))
+			break
+		}
+		text := rest[:end]
+		rest = rest[end+2:]
+		close := strings.Index(rest, ")")
+		if close < 0 {
+			b.WriteString(template.HTMLEscapeString(s[i:]))
+			break
+		}
+		url := rest[:close]
+		fmt.Fprintf(&b, `<a href="%s" target="_blank" rel="noopener">%s</a>`,
+			template.HTMLEscapeString(url),
+			template.HTMLEscapeString(text),
+		)
+		s = rest[close+1:]
+	}
+	return b.String()
+}

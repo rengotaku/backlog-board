@@ -1,0 +1,837 @@
+:root {
+    --fg: #1f2328;
+    --fg-muted: #57606a;
+    --bg: #fff;
+    --bg-soft: #f6f8fa;
+    --border: #d0d7de;
+    --link: #0969da;
+    --unhandled: #cf222e;
+    --unhandled-rgb: 207, 34, 46;
+    --cc: #586069;
+    --checked: #9a6700;
+    --replied: #1a7f37;
+    --replied-rgb: 26, 127, 55;
+    --stale: #cf222e;
+    --shadow: 0 1px 0 rgba(31, 35, 40, 0.04);
+    --shadow-popover: 0 4px 12px rgba(31, 35, 40, 0.12);
+
+    /* Backlog 課題ステータス色 (data-status= 値で参照) */
+    --status-open:        #ea2c00;
+    --status-in-progress: #285fbf;
+    --status-resolved:    #02855b;
+    --status-closed:      #707070;
+    --status-pool:        #7a4ec6;
+    --status-pending:     #b85c00;
+
+    /* 新着バッジ強調状態の黄色系 */
+    --new-bg:        #ffe66b;
+    --new-bg-hover:  #ffd93d;
+    --new-fg:        #5a4500;
+    --new-border:    #d6b500;
+    --new-glow-rgb:  255, 230, 107;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --fg: #e6edf3;
+        --fg-muted: #8d96a0;
+        --bg: #0d1117;
+        --bg-soft: #161b22;
+        --border: #30363d;
+        --link: #4493f8;
+        --unhandled: #ff7b72;
+        --unhandled-rgb: 255, 123, 114;
+        --cc: #8b949e;
+        --checked: #d29922;
+        --replied: #56d364;
+        --replied-rgb: 86, 211, 100;
+        --stale: #ff9090;
+        --shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+        --shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.6);
+
+        --status-open:        #ff7b72;
+        --status-in-progress: #4493f8;
+        --status-resolved:    #56d364;
+        --status-closed:      #9b9b9b;
+        --status-pool:        #b187ec;
+        --status-pending:     #e0a060;
+    }
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans",
+        "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.5;
+}
+
+.top {
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+    background: var(--bg-soft);
+}
+
+.top h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.site-logo {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+}
+
+.top .meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--fg-muted);
+    font-size: 12px;
+    flex-wrap: wrap;
+}
+
+.top .meta #refresh-form {
+    display: inline-flex;
+    align-items: center;
+    margin: 0;
+}
+
+.top .meta .stale {
+    color: var(--stale);
+    font-weight: 600;
+}
+
+/* --- info icon (hover で詳細表示) --- */
+
+.info-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    cursor: help;
+    color: var(--fg-muted);
+    outline: none;
+}
+
+.info-icon {
+    font-size: 18px;
+    line-height: 1;
+    color: var(--link);
+    opacity: 0.65;
+    transition: opacity 0.15s, transform 0.15s;
+}
+
+.info-wrap:hover .info-icon,
+.info-wrap:focus .info-icon,
+.info-wrap:focus-within .info-icon {
+    opacity: 1;
+    transform: scale(1.15);
+}
+
+.info-wrap.stale .info-icon {
+    color: var(--stale);
+    opacity: 1;
+    animation: stale-blink 2s ease-in-out infinite;
+}
+
+@keyframes stale-blink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.55; }
+}
+
+.info-tip {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 220px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    box-shadow: var(--shadow-popover);
+    font-size: 12px;
+    color: var(--fg);
+    z-index: 20;
+    white-space: nowrap;
+    text-align: left;
+}
+
+.info-wrap:hover .info-tip,
+.info-wrap:focus .info-tip,
+.info-wrap:focus-within .info-tip {
+    display: block;
+}
+
+.info-tip > div {
+    padding: 3px 0;
+}
+
+.info-tip > div + div {
+    border-top: 1px dashed var(--border);
+}
+
+.info-label {
+    display: inline-block;
+    width: 5em;
+    color: var(--fg-muted);
+    font-size: 11px;
+}
+
+.info-sub {
+    color: var(--fg-muted);
+    font-size: 11px;
+    margin-left: 4px;
+}
+
+.info-stale {
+    color: var(--stale);
+    font-weight: 600;
+    margin-left: 6px;
+}
+
+.info-action {
+    margin-left: 6px;
+    padding: 1px 8px;
+    font-size: 11px;
+    color: var(--link);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.info-action:hover { opacity: 0.7; }
+
+.refresh-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 10px;
+    font-size: 12px;
+    color: var(--link);
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.refresh-btn:hover { opacity: 0.7; }
+.refresh-btn:disabled { opacity: 0.4; cursor: default; }
+
+.new-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--fg-muted);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+    opacity: 0.4;
+    cursor: default;
+    transition: opacity 0.15s, background-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.new-badge.active {
+    background: var(--new-bg);
+    color: var(--new-fg);
+    border-color: var(--new-border);
+    opacity: 1;
+    cursor: pointer;
+    box-shadow: 0 0 0 2px rgba(var(--new-glow-rgb), 0.35);
+    animation: new-badge-pulse 1.6s ease-in-out 3;
+}
+
+.new-badge.active:hover {
+    background: var(--new-bg-hover);
+}
+
+@keyframes new-badge-pulse {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(var(--new-glow-rgb), 0.45); }
+    50%      { box-shadow: 0 0 0 6px rgba(var(--new-glow-rgb), 0.0); }
+}
+
+.new-pop {
+    position: absolute;
+    top: -8px;
+    right: -12px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--new-bg);
+    color: var(--new-fg);
+    border: 1px solid var(--new-border);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.5;
+    box-shadow: 0 0 0 2px rgba(var(--new-glow-rgb), 0.35);
+    animation: new-badge-pulse 1.6s ease-in-out 3;
+    pointer-events: none;
+    z-index: 2;
+    white-space: nowrap;
+}
+
+main {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 16px 24px 64px;
+}
+
+.counts {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 8px 0 24px;
+}
+
+.count {
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 13px;
+    background: var(--bg-soft);
+    cursor: pointer;
+    user-select: none;
+    transition: opacity 0.15s;
+}
+
+.count:hover { opacity: 0.75; }
+.count strong { font-weight: 700; }
+
+.count-未対応 { border-color: var(--unhandled); color: var(--unhandled); }
+.count-CC     { border-color: var(--cc);        color: var(--cc); }
+.count-対応済 { border-color: var(--replied);   color: var(--replied); }
+.count-total  { border-color: var(--border);    color: var(--fg-muted); }
+
+.counts.filtered .count { opacity: 0.35; }
+.counts.filtered .count.active { opacity: 1; }
+
+.count-mode { opacity: 0.45; }
+.count-mode.active { opacity: 1; border-color: var(--fg); color: var(--fg); }
+
+/* --- mention buckets (時間軸) --- */
+
+.hidden { display: none !important; }
+
+.bucket {
+    position: relative;
+    margin: 20px 0 36px;
+    padding-left: 16px;
+    border-left: 4px solid var(--border);
+    border-radius: 1px;
+}
+
+.bucket-head {
+    margin: 0 0 10px;
+    padding: 0;
+    font-size: 13px;
+    font-weight: 700;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    color: var(--fg-muted);
+    text-transform: none;
+    letter-spacing: 0.02em;
+}
+
+.bucket-label { color: var(--fg); font-size: 14px; }
+.bucket-n     { font-weight: 400; color: var(--fg-muted); font-size: 11px; }
+
+/* 左アクセントバー (タイムライン風) — slug ごとに色を変える。
+   1w は本文色から var(--link)（青）に変更して 1m / older と差別化。 */
+.bucket[data-bucket="1h"]    { border-left-color: var(--unhandled); }
+.bucket[data-bucket="6h"]    { border-left-color: var(--status-pending); }
+.bucket[data-bucket="24h"]   { border-left-color: var(--checked); }
+.bucket[data-bucket="1w"]    { border-left-color: var(--link); }
+.bucket[data-bucket="1m"]    { border-left-color: var(--fg-muted); }
+.bucket[data-bucket="older"] { border-left-color: var(--border); }
+
+.bucket[data-bucket="1h"]    .bucket-label { color: var(--unhandled); }
+.bucket[data-bucket="6h"]    .bucket-label { color: var(--status-pending); }
+.bucket[data-bucket="24h"]   .bucket-label { color: var(--checked); }
+.bucket[data-bucket="1w"]    .bucket-label { color: var(--link); }
+.bucket[data-bucket="1m"]    .bucket-label { color: var(--fg-muted); }
+.bucket[data-bucket="older"] .bucket-label { color: var(--fg-muted); opacity: 0.7; }
+
+/* --- mention row 用の補助スタイル --- */
+
+.latest-since {
+    font-size: 11px;
+    color: var(--fg-muted);
+    white-space: nowrap;
+}
+
+/* mention 内に出すステータスバッジ（カードヘッダの IssueStatus とは別物） */
+.mention-meta .badge.status-badge[data-status="未対応"] { color: var(--unhandled); border-color: var(--unhandled); }
+.mention-meta .badge.status-badge[data-status="CC"]     { color: var(--cc);        border-color: var(--cc); }
+.mention-meta .badge.status-badge[data-status="対応済"] { color: var(--replied);   border-color: var(--replied); }
+
+.empty {
+    margin: 0;
+    padding: 16px;
+    color: var(--fg-muted);
+    font-size: 13px;
+}
+
+.mentions {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.mention {
+    border-top: 1px solid var(--border);
+    padding: 12px 16px;
+}
+
+.mention:first-child { border-top: 0; }
+
+.mention-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.mention-head .key {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--link);
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.mention-head .key:hover { text-decoration: underline; }
+
+.mention-head .summary {
+    flex: 1;
+    min-width: 0;
+    word-break: break-word;
+}
+
+.mention-head .issue-status {
+    font-size: 11px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 6px;
+    color: var(--fg-muted);
+}
+
+.mention-meta a.when {
+    color: var(--link);
+    text-decoration: none;
+}
+
+.mention-meta a.when:hover {
+    text-decoration: underline;
+}
+
+.mention-meta {
+    display: flex;
+    gap: 12px;
+    margin-top: 4px;
+    color: var(--fg-muted);
+    font-size: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.mention-meta .meta-label {
+    color: var(--fg-muted);
+    font-size: 11px;
+}
+
+.mention-meta .meta-val {
+    font-size: 12px;
+}
+
+.mention-meta .meta-val.me {
+    color: var(--unhandled);
+    font-weight: 700;
+}
+
+.mention-meta .badge {
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+}
+
+.mention-meta .badge.starred { color: var(--checked); border-color: var(--checked); }
+.mention-meta .badge.replied { color: var(--replied); border-color: var(--replied); }
+.mention-meta .badge.at-mention { color: var(--link); border-color: var(--link); font-weight: bold; }
+
+.mention .excerpt {
+    margin: 8px 0 0;
+    color: var(--fg);
+    font-size: 13px;
+    background: var(--bg-soft);
+    padding: 8px 12px;
+    border-radius: 4px;
+    word-break: break-word;
+}
+
+.history-wrap {
+    margin-top: 8px;
+    font-size: 13px;
+}
+
+.history-wrap > summary {
+    cursor: pointer;
+    color: var(--link);
+}
+
+.history {
+    margin: 8px 0 0;
+    padding: 8px 12px;
+    border-left: 2px solid var(--border);
+    background: var(--bg-soft);
+    border-radius: 0 4px 4px 0;
+}
+
+.comment-block {
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+}
+
+.comment-block.mention-source {
+    background: rgba(var(--unhandled-rgb), 0.08);
+    border-left: 3px solid var(--unhandled);
+    padding-left: 10px;
+}
+
+.comment-block.own-comment {
+    background: rgba(var(--replied-rgb), 0.07);
+    border-left: 3px solid var(--replied);
+    padding-left: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+    .comment-block.mention-source {
+        background: rgba(var(--unhandled-rgb), 0.12);
+    }
+    .comment-block.own-comment {
+        background: rgba(var(--replied-rgb), 0.12);
+    }
+}
+
+.history h4 {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: var(--fg-muted);
+    font-weight: 600;
+}
+
+.history h5 {
+    margin: 12px 0 4px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.history h5 a { color: var(--link); text-decoration: none; }
+.history h5 a:hover { text-decoration: underline; }
+
+.history p {
+    margin: 0 0 8px;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+.mention.lazy { display: none; }
+
+.mention.closed { opacity: 0.45; }
+.mention.closed:hover { opacity: 0.9; }
+
+.scroll-sentinel { height: 1px; }
+
+.error {
+    border: 1px solid var(--unhandled);
+    color: var(--unhandled);
+    background: var(--bg-soft);
+    padding: 12px 16px;
+    border-radius: 6px;
+}
+
+/* --- tabs --- */
+
+.tab-nav {
+    display: flex;
+    gap: 4px;
+    margin: 8px 0 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.tab-btn {
+    position: relative;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--fg-muted);
+    cursor: pointer;
+    margin-bottom: -1px;
+    transition: color 0.15s, border-color 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tab-btn:hover { color: var(--fg); }
+
+.tab-btn.active {
+    color: var(--fg);
+    border-bottom-color: var(--link);
+}
+
+.tab-badge {
+    font-size: 11px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 1px 7px;
+    font-weight: 600;
+}
+
+/* --- issue status colors (Backlog 公式色に寄せたパレット) ---
+   色は CSS 変数 --status-* で定義（ライト/ダーク両対応）。
+   ここでは status 値 → 変数のマッピングのみ。 */
+
+.issue-status[data-status="未対応"]      { color: var(--status-open);        border-color: var(--status-open); }
+.issue-status[data-status="処理中"]      { color: var(--status-in-progress); border-color: var(--status-in-progress); }
+.issue-status[data-status="処理済"]      { color: var(--status-resolved);    border-color: var(--status-resolved); }
+.issue-status[data-status="処理済み"]    { color: var(--status-resolved);    border-color: var(--status-resolved); }
+.issue-status[data-status="完了"]        { color: var(--status-closed);      border-color: var(--status-closed); }
+.issue-status[data-status="開発プール"]  { color: var(--status-pool);        border-color: var(--status-pool); }
+.issue-status[data-status="本番反映待ち"] { color: var(--status-pending);     border-color: var(--status-pending); }
+
+/* kanban 列ヘッダーのステータス名も同じ色で着色（タイムラインと一貫） */
+.kanban-col-name[data-status="未対応"]      { color: var(--status-open); }
+.kanban-col-name[data-status="処理中"]      { color: var(--status-in-progress); }
+.kanban-col-name[data-status="処理済"]      { color: var(--status-resolved); }
+.kanban-col-name[data-status="処理済み"]    { color: var(--status-resolved); }
+.kanban-col-name[data-status="完了"]        { color: var(--status-closed); }
+.kanban-col-name[data-status="開発プール"]  { color: var(--status-pool); }
+.kanban-col-name[data-status="本番反映待ち"] { color: var(--status-pending); }
+
+.badge.issue-type {
+    color: var(--fg-muted);
+    border-color: var(--border);
+}
+
+.badge.priority-最高,
+.badge.priority-高 { color: var(--unhandled); border-color: var(--unhandled); }
+.badge.priority-中 { color: var(--checked);   border-color: var(--checked); }
+.badge.priority-低,
+.badge.priority-最低 { color: var(--fg-muted);  border-color: var(--border); }
+
+.meta-val.overdue {
+    color: var(--unhandled);
+    font-weight: 700;
+}
+
+/* --- my issue groups --- */
+
+.myissue-group {
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg);
+    box-shadow: var(--shadow);
+}
+
+.myissue-group-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 8px 16px;
+    background: var(--bg-soft);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.myissue-children {
+    border: none;
+}
+
+.myissue-children .mention {
+    padding-left: 28px;
+}
+
+/* --- kanban mode --- */
+.kanban-board {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding: 4px 2px 8px;
+    align-items: flex-start;
+}
+
+.kanban-col {
+    flex: 0 0 280px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 240px);
+}
+
+.kanban-col.hidden {
+    display: none;
+}
+
+.kanban-col-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.kanban-col-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.kanban-col-count {
+    color: var(--fg-muted);
+    font-weight: 500;
+    font-size: 12px;
+    background: var(--bg-soft);
+    border-radius: 10px;
+    padding: 1px 8px;
+}
+
+.kanban-col-hide {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--fg-muted);
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+}
+
+.kanban-col-hide:hover {
+    background: var(--bg-soft);
+    color: var(--fg);
+}
+
+.kanban-cards {
+    list-style: none;
+    margin: 0;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.kanban-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 8px 10px;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    box-shadow: var(--shadow);
+}
+
+.kanban-card-head {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.kanban-card-head .key {
+    font-weight: 600;
+}
+
+.kanban-card-summary {
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.kanban-card-meta {
+    display: flex;
+    gap: 4px;
+    align-items: baseline;
+    font-size: 11px;
+    color: var(--fg-muted);
+}
+
+.kanban-card-empty {
+    text-align: center;
+    color: var(--fg-muted);
+    border-style: dashed;
+    background: transparent;
+    box-shadow: none;
+}
+
+.kanban-restore {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.kanban-restore-label {
+    color: var(--fg-muted);
+}
+
+.kanban-restore-chip {
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--fg);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.kanban-restore-chip:hover {
+    background: var(--bg-soft);
+}

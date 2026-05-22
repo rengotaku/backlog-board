@@ -1,0 +1,22 @@
+# backlog-board 設定ファイル
+# 配置先: ~/.config/backlog-board/config.toml
+# (XDG_CONFIG_HOME を設定している場合は $XDG_CONFIG_HOME/backlog-board/config.toml)
+#
+# 秘密 (BACKLOG_API_KEY) とデバッグ用 (LOG_LEVEL) のみ環境変数で渡す。
+# それ以外の設定はすべてこのファイルで管理する。
+
+# 必須: Backlog スペースのドメイン
+domain = "yourspace.backlog.com"
+
+# 任意: サーバーポート (デフォルト 8082)
+# port = "8082"
+
+# 任意: snapshot.json の保存先パス
+# デフォルト: ~/.local/share/backlog-board/snapshot.json
+# cache_path = "/path/to/snapshot.json"
+
+# 任意: graceful shutdown のタイムアウト (デフォルト 10s)
+# shutdown_timeout = "10s"
+
+# 任意: バックグラウンドフェッチの間隔 (デフォルト 15m)
+# fetch_interval = "15m"

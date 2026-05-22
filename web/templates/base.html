@@ -1,0 +1,185 @@
+{{define "base"}}<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+</head>
+<body>
+    <header class="top">
+        <h1>
+            <img class="site-logo" src="/static/apple-touch-icon.png" alt="" aria-hidden="true">
+            {{.Title}}
+        </h1>
+        <div class="meta">
+            {{if or .OwnUserName .Domain .FetchedAtJST}}
+                <span class="info-wrap{{if .CacheStale}} stale{{end}}" tabindex="0" aria-label="セッション情報">
+                    <span class="info-icon" aria-hidden="true">ⓘ</span>
+                    <span class="info-tip" role="tooltip">
+                        {{if .OwnUserName}}<div><span class="info-label">ユーザー</span>{{.OwnUserName}}</div>{{end}}
+                        {{if .Domain}}<div><span class="info-label">ドメイン</span>{{.Domain}}</div>{{end}}
+                        {{if .FetchedAtJST}}<div><span class="info-label">取得</span>{{if .FetchedSince}}{{.FetchedSince}}{{end}}<span class="info-sub">({{.FetchedAtJST}})</span>{{if .CacheStale}}<span class="info-stale">⚠ stale</span>{{end}}</div>{{end}}
+                        {{if .APICallCount}}<div><span class="info-label">前回 API</span>{{.APICallCount}} 回</div>{{end}}
+                        <div id="notif-row" hidden><span class="info-label">通知</span><span id="notif-status"></span><button type="button" id="notif-enable-btn" class="info-action" hidden>許可する</button></div>
+                    </span>
+                </span>
+            {{end}}
+            {{if .FetchedAt}}
+                <button type="button" class="new-badge" id="new-badge" data-fetched="{{.FetchedAt}}" title="新着を反映するためページをリロード" disabled>●新着あり</button>
+            {{end}}
+            {{if .CanRefresh}}
+                <form method="POST" action="/api/refresh" id="refresh-form">
+                    <button type="submit" class="refresh-btn" id="refresh-btn" title="Backlog から最新を取り直す">↻新着確認</button>
+                </form>
+            {{end}}
+        </div>
+    </header>
+    <main>
+        {{template "content" .}}
+    </main>
+    <script>
+    (function() {
+        var form = document.getElementById('refresh-form');
+        var btn  = document.getElementById('refresh-btn');
+        if (form && btn) {
+            form.addEventListener('submit', function() {
+                btn.disabled = true;
+                btn.textContent = '確認中…';
+            });
+        }
+
+        var badge = document.getElementById('new-badge');
+        if (!badge) return;
+
+        var initial = badge.dataset.fetched || '';
+        var POLL_MS = 30000;
+        var DEFAULT_TEXT = '●新着あり';
+        var lastNotifiedFetchedAt = '';
+
+        // --- Desktop notification setup (Information ツールチップ内) ---
+        var notifRow      = document.getElementById('notif-row');
+        var notifStatusEl = document.getElementById('notif-status');
+        var notifEnableEl = document.getElementById('notif-enable-btn');
+
+        function syncNotifUI() {
+            if (!notifRow || !notifStatusEl || !notifEnableEl) return;
+            if (!('Notification' in window)) {
+                notifRow.hidden = true;
+                return;
+            }
+            notifRow.hidden = false;
+            var p = Notification.permission;
+            if (p === 'granted') {
+                notifStatusEl.textContent = '許可済み';
+                notifEnableEl.hidden = true;
+            } else if (p === 'denied') {
+                notifStatusEl.textContent = 'ブロック中（ブラウザ設定から変更）';
+                notifEnableEl.hidden = true;
+            } else {
+                notifStatusEl.textContent = '未設定';
+                notifEnableEl.hidden = false;
+            }
+        }
+        if (notifEnableEl) {
+            notifEnableEl.addEventListener('click', function(ev) {
+                ev.stopPropagation();
+                if (!('Notification' in window)) return;
+                Notification.requestPermission().then(syncNotifUI);
+            });
+        }
+        syncNotifUI();
+
+        function notify(diff) {
+            if (!('Notification' in window)) return;
+            if (Notification.permission !== 'granted') return;
+            var bs = (diff && diff.by_status) || {};
+            var total = (diff && diff.total) || 0;
+            if (total <= 0) return;
+            var u = bs['未対応'] || 0;
+            var cc = bs['CC'] || 0;
+            var h = bs['対応済'] || 0;
+            var body = '合計 +' + total + ' (未' + u + '/CC' + cc + '/対応' + h + ')';
+            try {
+                var n = new Notification('Backlog board - 新着あり', {
+                    body: body,
+                    icon: '/static/apple-touch-icon.png',
+                    tag: 'backlog-board-new',
+                    renotify: true
+                });
+                n.onclick = function() {
+                    window.focus();
+                    window.location.reload();
+                    n.close();
+                };
+            } catch (e) {}
+        }
+
+        badge.addEventListener('click', function() {
+            if (badge.classList.contains('active')) {
+                window.location.reload();
+            }
+        });
+
+        function setNewPop(host, n) {
+            if (!host) return;
+            var pop = host.querySelector(':scope > .new-pop');
+            if (!n || n <= 0) {
+                if (pop) pop.remove();
+                return;
+            }
+            var text = '+' + n;
+            if (pop) {
+                if (pop.textContent !== text) pop.textContent = text;
+                return;
+            }
+            pop = document.createElement('span');
+            pop.className = 'new-pop';
+            pop.textContent = text;
+            host.appendChild(pop);
+        }
+
+        function distributeCounts(diff) {
+            var bs = (diff && diff.by_status) || {};
+            var total = (diff && diff.total) || 0;
+            setNewPop(document.querySelector('.tab-btn[data-tab="mentions"]'), total);
+            ['未対応', '対応済', 'CC'].forEach(function(status) {
+                setNewPop(document.querySelector('.count[data-status="' + status + '"]'), bs[status] || 0);
+            });
+        }
+
+        function activate(diff, fetchedAt) {
+            badge.textContent = DEFAULT_TEXT;
+            badge.classList.add('active');
+            badge.disabled = false;
+            distributeCounts(diff);
+            if (fetchedAt && fetchedAt !== lastNotifiedFetchedAt) {
+                lastNotifiedFetchedAt = fetchedAt;
+                notify(diff);
+            }
+        }
+
+        function poll() {
+            fetch('/api/state', { cache: 'no-store' })
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(data) {
+                    if (!data) return;
+                    var latest = data.fetched_at || '';
+                    var diff = data.diff;
+                    if (latest && initial && latest !== initial && diff && diff.total > 0) {
+                        activate(diff, latest);
+                    }
+                })
+                .catch(function() {});
+        }
+
+        setInterval(poll, POLL_MS);
+    })();
+    </script>
+</body>
+</html>
+{{end}}

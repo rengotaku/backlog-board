@@ -1,0 +1,400 @@
+{{template "base" .}}
+
+{{define "content"}}
+{{if .Error}}
+    <div class="error">{{.Error}}</div>
+{{else}}
+    <div class="tab-nav">
+        <button class="tab-btn active" data-tab="mentions">メンション <span class="tab-badge">{{.Total}}</span></button>
+        <button class="tab-btn" data-tab="myissues">担当課題 <span class="tab-badge">{{.MyIssueTotal}}</span></button>
+    </div>
+
+    <div id="tab-mentions" class="tab-pane">
+        <div class="counts" id="counts">
+            {{$counts := .Counts}}
+            {{range .StatusOrder}}
+                <span class="count count-{{.}}" data-status="{{.}}">{{.}}: <strong>{{index $counts .}}</strong></span>
+            {{end}}
+            <span class="count count-total" data-status="">全て: <strong>{{.Total}}</strong></span>
+        </div>
+
+        {{if eq (len .Buckets) 0}}
+            <p class="empty">メンションはありません</p>
+        {{end}}
+
+        {{range .Buckets}}
+            <section class="bucket" data-bucket="{{.Slug}}">
+                <h2 class="bucket-head">
+                    <span class="bucket-label">{{.Label}}</span>
+                    <span class="bucket-n">メンション {{.Count}}</span>
+                </h2>
+                <ul class="mentions">
+                    {{range .Records}}
+                        <li class="mention{{if eq .IssueStatus "完了"}} closed{{end}}" data-status="{{.Status}}" data-issue-key="{{.IssueKey}}">
+                            <div class="mention-head">
+                                <a class="key" href="{{.IssueURL}}" target="_blank" rel="noopener">{{.IssueKey}}</a>
+                                <span class="summary">{{.IssueSummary}}</span>
+                                {{if .IssueStatus}}<span class="issue-status" data-status="{{.IssueStatus}}">{{.IssueStatus}}</span>{{end}}
+                                <span class="latest-since" title="{{.NotifiedAtJST}}">{{.NotifiedSince}}</span>
+                            </div>
+                            <div class="mention-meta">
+                                <a class="when" href="{{.CommentURL}}" target="_blank" rel="noopener">{{.NotifiedAtJST}}</a>
+                                {{if .Sender}}<span class="meta-label">送信:</span><span class="sender">{{.Sender}}</span>{{end}}
+                                {{if .Assignee}}<span class="meta-label">担当:</span><span class="meta-val{{if .IsAssignee}} me{{end}}">{{.Assignee}}</span>{{end}}
+                                {{if .Creator}}<span class="meta-label">作成:</span><span class="meta-val{{if .IsCreator}} me{{end}}">{{.Creator}}</span>{{end}}
+                                <span class="badge status-badge" data-status="{{.Status}}">{{.Status}}</span>
+                                {{if .AtMentioned}}<span class="badge at-mention">@</span>{{end}}
+                                {{if .Starred}}<span class="badge starred">★</span>{{end}}
+                                {{if .Replied}}<span class="badge replied">↩</span>{{end}}
+                            </div>
+                            {{if .ContentExcerpt}}
+                                <p class="excerpt">{{.ContentExcerpt}}</p>
+                            {{end}}
+                            {{if .CommentHistory}}
+                                <details class="history-wrap">
+                                    <summary>{{.CommentHistoryTitle}}</summary>
+                                    {{.CommentHistory}}
+                                </details>
+                            {{end}}
+                        </li>
+                    {{end}}
+                </ul>
+            </section>
+        {{end}}
+    </div>
+
+    <div id="tab-myissues" class="tab-pane" style="display:none">
+        {{if and (eq .MyIssueTotal 0) (eq (len .MyIssuePassed) 0)}}
+            <p class="empty">担当中の課題はありません</p>
+        {{else}}
+        <div class="counts" id="myissue-modes">
+            <span class="count count-mode active" data-myissue-mode="active">アクティブ順</span>
+            <span class="count count-mode" data-myissue-mode="kanban">カンバン</span>
+            <span class="count count-mode" data-myissue-mode="group">親子グループ</span>
+            <span class="count count-mode" data-myissue-mode="passed">パス済み <strong>{{len .MyIssuePassed}}</strong></span>
+        </div>
+
+        <div data-myissue-block="active">
+            {{range .MyIssueActive}}
+                <section class="bucket" data-bucket="{{.Slug}}">
+                    <h2 class="bucket-head">
+                        <span class="bucket-label">{{.Label}}</span>
+                        <span class="bucket-n">担当課題 {{.Count}}</span>
+                    </h2>
+                    <ul class="mentions">
+                        {{range .Issues}}
+                            <li class="mention myissue">
+                                <div class="mention-head">
+                                    <a class="key" href="{{.IssueURL}}" target="_blank" rel="noopener">{{.IssueKey}}</a>
+                                    <span class="summary">{{.IssueSummary}}</span>
+                                    {{if .IssueStatus}}<span class="issue-status" data-status="{{.IssueStatus}}">{{.IssueStatus}}</span>{{end}}
+                                    {{if .LatestSince}}<span class="latest-since" title="{{.LatestSinceJST}}">{{.LatestSince}}</span>{{end}}
+                                </div>
+                                <div class="mention-meta">
+                                    {{if .IssueType}}<span class="badge issue-type">{{.IssueType}}</span>{{end}}
+                                    {{if .Creator}}<span class="meta-label">作成:</span><span class="meta-val">{{.Creator}}</span>{{end}}
+                                    {{if .DueDate}}
+                                        <span class="meta-label">期限:</span>
+                                        <span class="meta-val{{if .Overdue}} overdue{{end}}">{{.DueDate}}{{if .Overdue}} ⚠{{end}}</span>
+                                    {{end}}
+                                    {{if .LastUserActivityAtJST}}
+                                        <span class="meta-label">活動:</span><span class="meta-val">{{.LastUserActivityAtJST}}</span>
+                                    {{end}}
+                                    <span class="meta-label">更新:</span><span class="meta-val">{{.UpdatedAtJST}}</span>
+                                </div>
+                                {{template "issue-history" .}}
+                            </li>
+                        {{end}}
+                    </ul>
+                </section>
+            {{end}}
+        </div>
+
+        <div data-myissue-block="kanban" style="display:none">
+            <div class="kanban-board" id="kanban-board">
+                {{range .MyIssueKanban}}
+                    <section class="kanban-col" data-kanban-status="{{.Status}}">
+                        <header class="kanban-col-head">
+                            <span class="kanban-col-name" data-status="{{.Status}}">{{.Status}}</span>
+                            <span class="kanban-col-count">{{.Count}}</span>
+                            <button type="button" class="kanban-col-hide" title="この列を非表示">×</button>
+                        </header>
+                        <ul class="kanban-cards">
+                            {{range .Issues}}
+                                <li class="kanban-card">
+                                    <div class="kanban-card-head">
+                                        <a class="key" href="{{.IssueURL}}" target="_blank" rel="noopener">{{.IssueKey}}</a>
+                                        {{if .LatestSince}}<span class="latest-since" title="{{.LatestSinceJST}}">{{.LatestSince}}</span>{{end}}
+                                    </div>
+                                    <div class="kanban-card-summary">{{.IssueSummary}}</div>
+                                    {{if .DueDate}}
+                                        <div class="kanban-card-meta">
+                                            <span class="meta-label">期限:</span>
+                                            <span class="meta-val{{if .Overdue}} overdue{{end}}">{{.DueDate}}{{if .Overdue}} ⚠{{end}}</span>
+                                        </div>
+                                    {{end}}
+                                </li>
+                            {{end}}
+                            {{if eq .Count 0}}
+                                <li class="kanban-card kanban-card-empty">—</li>
+                            {{end}}
+                        </ul>
+                    </section>
+                {{end}}
+            </div>
+            <div class="kanban-restore" id="kanban-restore" hidden>
+                <span class="kanban-restore-label">非表示中:</span>
+                <span class="kanban-restore-list"></span>
+            </div>
+        </div>
+
+        <div data-myissue-block="passed" style="display:none">
+            {{if eq (len .MyIssuePassed) 0}}
+                <p class="empty">他人に渡したチケットはありません（直近の活動 100 件内）</p>
+            {{else}}
+                <ul class="mentions myissue-flat">
+                    {{range .MyIssuePassed}}
+                        <li class="mention myissue">
+                            <div class="mention-head">
+                                <a class="key" href="{{.IssueURL}}" target="_blank" rel="noopener">{{.IssueKey}}</a>
+                                <span class="summary">{{.IssueSummary}}</span>
+                                {{if .PassedSince}}<span class="latest-since" title="{{.PassedAtJST}}">{{.PassedSince}}</span>{{end}}
+                            </div>
+                            <div class="mention-meta">
+                                <span class="meta-label">渡した先:</span><span class="meta-val">{{.PassedTo}}</span>
+                                <span class="meta-label">渡した時刻:</span><span class="meta-val">{{.PassedAtJST}}</span>
+                            </div>
+                            {{template "issue-history" .}}
+                        </li>
+                    {{end}}
+                </ul>
+            {{end}}
+        </div>
+
+        <div data-myissue-block="group" style="display:none">
+            {{range .MyIssueGroups}}
+                {{if .HasParent}}
+                    <section class="myissue-group">
+                        <div class="myissue-group-header">
+                            <a class="key" href="{{.ParentURL}}" target="_blank" rel="noopener">{{.ParentKey}}</a>
+                            <span class="summary">{{.ParentSummary}}</span>
+                        </div>
+                        <ul class="mentions myissue-children">
+                            {{range .Issues}}
+                                <li class="mention myissue">
+                                    <div class="mention-head">
+                                        <a class="key" href="{{.IssueURL}}" target="_blank" rel="noopener">{{.IssueKey}}</a>
+                                        <span class="summary">{{.IssueSummary}}</span>
+                                        {{if .IssueStatus}}<span class="issue-status" data-status="{{.IssueStatus}}">{{.IssueStatus}}</span>{{end}}
+                                        {{if .LatestSince}}<span class="latest-since" title="{{.LatestSinceJST}}">{{.LatestSince}}</span>{{end}}
+                                    </div>
+                                    <div class="mention-meta">
+                                        {{if .IssueType}}<span class="badge issue-type">{{.IssueType}}</span>{{end}}
+                                        {{if .Creator}}<span class="meta-label">作成:</span><span class="meta-val">{{.Creator}}</span>{{end}}
+                                        {{if .DueDate}}
+                                            <span class="meta-label">期限:</span>
+                                            <span class="meta-val{{if .Overdue}} overdue{{end}}">{{.DueDate}}{{if .Overdue}} ⚠{{end}}</span>
+                                        {{end}}
+                                        <span class="meta-label">更新:</span><span class="meta-val">{{.UpdatedAtJST}}</span>
+                                    </div>
+                                    {{template "issue-history" .}}
+                                </li>
+                            {{end}}
+                        </ul>
+                    </section>
+                {{else}}
+                    <ul class="mentions">
+                        {{range .Issues}}
+                            <li class="mention myissue">
+                                <div class="mention-head">
+                                    <a class="key" href="{{.IssueURL}}" target="_blank" rel="noopener">{{.IssueKey}}</a>
+                                    <span class="summary">{{.IssueSummary}}</span>
+                                    {{if .IssueStatus}}<span class="issue-status" data-status="{{.IssueStatus}}">{{.IssueStatus}}</span>{{end}}
+                                    {{if .LatestSince}}<span class="latest-since" title="{{.LatestSinceJST}}">{{.LatestSince}}</span>{{end}}
+                                </div>
+                                <div class="mention-meta">
+                                    {{if .IssueType}}<span class="badge issue-type">{{.IssueType}}</span>{{end}}
+                                    {{if .Creator}}<span class="meta-label">作成:</span><span class="meta-val">{{.Creator}}</span>{{end}}
+                                    {{if .DueDate}}
+                                        <span class="meta-label">期限:</span>
+                                        <span class="meta-val{{if .Overdue}} overdue{{end}}">{{.DueDate}}{{if .Overdue}} ⚠{{end}}</span>
+                                    {{end}}
+                                    <span class="meta-label">更新:</span><span class="meta-val">{{.UpdatedAtJST}}</span>
+                                </div>
+                                {{template "issue-history" .}}
+                            </li>
+                        {{end}}
+                    </ul>
+                {{end}}
+            {{end}}
+        </div>
+        {{end}}
+    </div>
+
+    <script>
+    (function() {
+        // --- tab switching ---
+        var tabBtns = document.querySelectorAll('.tab-btn');
+        var tabPanes = document.querySelectorAll('.tab-pane');
+
+        tabBtns.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                tabBtns.forEach(function(b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                var target = btn.dataset.tab;
+                tabPanes.forEach(function(pane) {
+                    pane.style.display = pane.id === 'tab-' + target ? '' : 'none';
+                });
+            });
+        });
+
+        // --- status filter (mentions tab: bucket > mention) ---
+        var countsEl = document.getElementById('counts');
+        if (countsEl) {
+            var countEls = countsEl.querySelectorAll('.count');
+            var mentions = document.querySelectorAll('#tab-mentions .mention');
+            var buckets  = document.querySelectorAll('#tab-mentions .bucket');
+
+            function setFilter(status) {
+                countEls.forEach(function(el) { el.classList.remove('active'); });
+                var noFilter = !status;
+                if (noFilter) {
+                    countsEl.classList.remove('filtered');
+                } else {
+                    countsEl.classList.add('filtered');
+                    countEls.forEach(function(el) {
+                        if (el.dataset.status === status) el.classList.add('active');
+                    });
+                }
+
+                mentions.forEach(function(m) {
+                    m.classList.toggle('hidden', !(noFilter || m.dataset.status === status));
+                });
+
+                // 未対応・全て はフラット表示（取りこぼし防止）。
+                // それ以外（CC / 対応済）は「あの件どうなった？」用途なので
+                // 同一 issue は最新通知 1 件のみ残す（記録は NotifiedAt desc 順）。
+                if (status && status !== '未対応') {
+                    var seen = {};
+                    mentions.forEach(function(m) {
+                        if (m.classList.contains('hidden')) return;
+                        var key = m.dataset.issueKey;
+                        if (!key) return;
+                        if (seen[key]) {
+                            m.classList.add('hidden');
+                        } else {
+                            seen[key] = true;
+                        }
+                    });
+                }
+
+                buckets.forEach(function(b) {
+                    var hasVisible = !!b.querySelector('.mention:not(.hidden)');
+                    b.classList.toggle('hidden', !hasVisible);
+                });
+            }
+
+            countEls.forEach(function(el) {
+                el.addEventListener('click', function() {
+                    setFilter(el.dataset.status);
+                });
+            });
+
+            // デフォルト: 未対応を選択状態で表示
+            setFilter('未対応');
+        }
+
+        // --- myissue view mode (status flat / parent group) ---
+        var modesEl = document.getElementById('myissue-modes');
+        if (modesEl) {
+            var modeEls = modesEl.querySelectorAll('.count-mode');
+            var blocks  = document.querySelectorAll('[data-myissue-block]');
+
+            function setMode(mode) {
+                modeEls.forEach(function(el) {
+                    el.classList.toggle('active', el.dataset.myissueMode === mode);
+                });
+                blocks.forEach(function(b) {
+                    b.style.display = b.dataset.myissueBlock === mode ? '' : 'none';
+                });
+            }
+
+            modeEls.forEach(function(el) {
+                el.addEventListener('click', function() {
+                    setMode(el.dataset.myissueMode);
+                });
+            });
+        }
+
+        // --- kanban column hide/restore (persisted in LocalStorage) ---
+        var kanbanBoard = document.getElementById('kanban-board');
+        if (kanbanBoard) {
+            var KANBAN_STORAGE_KEY = 'backlog-board.kanban.hiddenStatuses';
+            var restoreWrap = document.getElementById('kanban-restore');
+            var restoreList = restoreWrap.querySelector('.kanban-restore-list');
+
+            function readHidden() {
+                try {
+                    var raw = localStorage.getItem(KANBAN_STORAGE_KEY);
+                    if (!raw) return [];
+                    var arr = JSON.parse(raw);
+                    return Array.isArray(arr) ? arr : [];
+                } catch (e) { return []; }
+            }
+            function writeHidden(arr) {
+                try { localStorage.setItem(KANBAN_STORAGE_KEY, JSON.stringify(arr)); } catch (e) {}
+            }
+
+            function applyHidden() {
+                var hidden = readHidden();
+                var hiddenSet = {};
+                hidden.forEach(function(s) { hiddenSet[s] = true; });
+
+                kanbanBoard.querySelectorAll('.kanban-col').forEach(function(col) {
+                    var status = col.dataset.kanbanStatus;
+                    col.classList.toggle('hidden', !!hiddenSet[status]);
+                });
+
+                restoreList.innerHTML = '';
+                hidden.forEach(function(status) {
+                    var chip = document.createElement('button');
+                    chip.type = 'button';
+                    chip.className = 'kanban-restore-chip';
+                    chip.textContent = status + ' +';
+                    chip.addEventListener('click', function() {
+                        var cur = readHidden().filter(function(s) { return s !== status; });
+                        writeHidden(cur);
+                        applyHidden();
+                    });
+                    restoreList.appendChild(chip);
+                });
+                restoreWrap.hidden = hidden.length === 0;
+            }
+
+            kanbanBoard.querySelectorAll('.kanban-col-hide').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var col = btn.closest('.kanban-col');
+                    if (!col) return;
+                    var status = col.dataset.kanbanStatus;
+                    var cur = readHidden();
+                    if (cur.indexOf(status) < 0) cur.push(status);
+                    writeHidden(cur);
+                    applyHidden();
+                });
+            });
+
+            applyHidden();
+        }
+    })();
+    </script>
+{{end}}
+{{end}}
+
+{{define "issue-history"}}
+{{if .CommentHistory}}
+<details class="history-wrap">
+    <summary>{{.CommentHistoryTitle}}</summary>
+    {{.CommentHistory}}
+</details>
+{{end}}
+{{end}}
