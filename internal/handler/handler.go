@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -771,16 +772,18 @@ func (h *Handler) safeURL(raw string) string {
 	return "#"
 }
 
-// renderInline handles only [text](url) links in the markdown subset we emit.
+// renderInline は markdown 記法 [text](url) のリンクを処理する。
+// [text](url) ブロックの外側に裸の http(s):// URL があれば autolinkAndEscape で
+// クリッカブル化する（allowlist 設定に従って素テキスト or <a> が選ばれる）。
 func (h *Handler) renderInline(s string) string {
 	var b strings.Builder
 	for {
 		i := strings.Index(s, "[")
 		if i < 0 {
-			b.WriteString(template.HTMLEscapeString(s))
+			b.WriteString(h.autolinkAndEscape(s))
 			break
 		}
-		b.WriteString(template.HTMLEscapeString(s[:i]))
+		b.WriteString(h.autolinkAndEscape(s[:i]))
 		rest := s[i+1:]
 		end := strings.Index(rest, "](")
 		if end < 0 {
@@ -802,4 +805,67 @@ func (h *Handler) renderInline(s string) string {
 		s = rest[close+1:]
 	}
 	return b.String()
+}
+
+// bareURLPattern は autolink で拾う裸 URL の正規表現。
+// 終端を貪欲にしすぎないよう、空白・引用符・基本的な記号で停止する。
+// URL の末尾に張り付いた句読点 (".", ",", ";", ":", "!", "?", ")", "]" 等) は
+// 後段 trimURLTrailingPunct で URL から外して別途エスケープ出力する。
+var bareURLPattern = regexp.MustCompile(`https?://[^\s<>"'\x60]+`)
+
+// autolinkAndEscape は s 内の裸 http(s):// URL を <a> でラップし、
+// それ以外の部分は HTML エスケープして連結する。
+// safeURL が "#" を返す URL（allowlist 外 / scheme 不正）はリンク化せず素テキストとして残す。
+func (h *Handler) autolinkAndEscape(s string) string {
+	idxs := bareURLPattern.FindAllStringIndex(s, -1)
+	if len(idxs) == 0 {
+		return template.HTMLEscapeString(s)
+	}
+	var b strings.Builder
+	pos := 0
+	for _, idx := range idxs {
+		start, end := idx[0], idx[1]
+		b.WriteString(template.HTMLEscapeString(s[pos:start]))
+		raw := s[start:end]
+		core, trail := trimURLTrailingPunct(raw)
+		href := h.safeURL(core)
+		if href == "#" {
+			// allowlist 外 / 不正 scheme: クリッカブルにせず素テキストとして出す
+			b.WriteString(template.HTMLEscapeString(raw))
+		} else {
+			fmt.Fprintf(&b, `<a href="%s" target="_blank" rel="noopener">%s</a>%s`,
+				template.HTMLEscapeString(href),
+				template.HTMLEscapeString(core),
+				template.HTMLEscapeString(trail),
+			)
+		}
+		pos = end
+	}
+	b.WriteString(template.HTMLEscapeString(s[pos:]))
+	return b.String()
+}
+
+// trimURLTrailingPunct は URL 末尾の句読点を URL 本体から切り離す。
+// 例: "https://example.com/path." → ("https://example.com/path", ".")
+// 末尾が ")" の場合は URL 内の "(" と対応が取れているなら維持する
+// （Wikipedia 等の URL 末尾 ")" を切らないため）。
+func trimURLTrailingPunct(u string) (core, trail string) {
+	end := len(u)
+	for end > 0 {
+		r := u[end-1]
+		switch r {
+		case '.', ',', ';', ':', '!', '?', ']', '}', '\'', '"':
+			end--
+			continue
+		case ')':
+			// 対応する "(" が URL 内にあれば末尾 ")" を URL の一部とみなす
+			if strings.Count(u[:end], "(") > strings.Count(u[:end-1], ")") {
+				return u[:end], u[end:]
+			}
+			end--
+			continue
+		}
+		break
+	}
+	return u[:end], u[end:]
 }
