@@ -486,6 +486,20 @@ main {
     word-break: break-word;
 }
 
+/* 本文中のリンク（コメント抜粋 / コメント履歴本体）はブラウザ既定の暗紫色だと
+   背景に埋もれて判別しにくいので、テーマカラーで常時アンダーラインを引く。
+   タイムスタンプ等の機能リンク (.history h5 a, .key, .when) は別途指定済。 */
+.mention .excerpt a,
+.history p a {
+    color: var(--link);
+    text-decoration: underline;
+}
+.mention .excerpt a:hover,
+.history p a:hover {
+    text-decoration: underline;
+    filter: brightness(1.15);
+}
+
 .history-wrap {
     margin-top: 8px;
     font-size: 13px;
