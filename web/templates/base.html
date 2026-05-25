@@ -9,6 +9,17 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+    <script>
+    // FOUC 回避のため <head> 内で同期実行。localStorage の選択を即座に <html> に反映。
+    (function() {
+        try {
+            var t = localStorage.getItem('backlog-board-theme');
+            if (t === 'dark' || t === 'light') {
+                document.documentElement.setAttribute('data-theme', t);
+            }
+        } catch (e) {}
+    })();
+    </script>
 </head>
 <body>
     <header class="top">
@@ -37,12 +48,43 @@
                     <button type="submit" class="refresh-btn" id="refresh-btn" title="Backlog から最新を取り直す">↻新着確認</button>
                 </form>
             {{end}}
+            <button type="button" class="theme-toggle" id="theme-toggle" aria-label="テーマ切り替え" title="ライト / ダーク 切り替え">🌓</button>
         </div>
     </header>
     <main>
         {{template "content" .}}
     </main>
     <script>
+    // テーマ切り替え (light <-> dark)。
+    // 未選択時は CSS 側の @media (prefers-color-scheme) に追従する。
+    (function() {
+        var btn = document.getElementById('theme-toggle');
+        if (!btn) return;
+        var root = document.documentElement;
+
+        function effectiveTheme() {
+            var explicit = root.getAttribute('data-theme');
+            if (explicit === 'dark' || explicit === 'light') return explicit;
+            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        function syncBtn() {
+            // 表示するアイコンは「切り替え先」を案内する: いま dark なら ☀ (light に行ける) を出す。
+            btn.textContent = effectiveTheme() === 'dark' ? '☀' : '🌙';
+        }
+        btn.addEventListener('click', function() {
+            var next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+            root.setAttribute('data-theme', next);
+            try { localStorage.setItem('backlog-board-theme', next); } catch (e) {}
+            syncBtn();
+        });
+        // OS の color scheme が変わった瞬間 (data-theme 未設定時) はアイコンも追従
+        if (window.matchMedia) {
+            var mq = window.matchMedia('(prefers-color-scheme: dark)');
+            if (mq.addEventListener) mq.addEventListener('change', syncBtn);
+        }
+        syncBtn();
+    })();
+
     (function() {
         var form = document.getElementById('refresh-form');
         var btn  = document.getElementById('refresh-btn');
