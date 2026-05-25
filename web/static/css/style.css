@@ -31,8 +31,37 @@
     --new-glow-rgb:  255, 230, 107;
 }
 
+/* dark テーマ変数: <html data-theme="dark"> を最優先で、それが無い場合のみ
+   OS 設定 (prefers-color-scheme: dark) に追従する。<html data-theme="light">
+   が付いた場合は OS が dark でもこのブロックは適用されない (variant selector で
+   :not 指定しているため)。 */
+:root[data-theme="dark"] {
+    --fg: #e6edf3;
+    --fg-muted: #8d96a0;
+    --bg: #0d1117;
+    --bg-soft: #161b22;
+    --border: #30363d;
+    --link: #4493f8;
+    --unhandled: #ff7b72;
+    --unhandled-rgb: 255, 123, 114;
+    --cc: #8b949e;
+    --checked: #d29922;
+    --replied: #56d364;
+    --replied-rgb: 86, 211, 100;
+    --stale: #ff9090;
+    --shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+    --shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.6);
+
+    --status-open:        #ff7b72;
+    --status-in-progress: #4493f8;
+    --status-resolved:    #56d364;
+    --status-closed:      #9b9b9b;
+    --status-pool:        #b187ec;
+    --status-pending:     #e0a060;
+}
+
 @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]):not([data-theme="dark"]) {
         --fg: #e6edf3;
         --fg-muted: #8d96a0;
         --bg: #0d1117;
@@ -56,6 +85,23 @@
         --status-pool:        #b187ec;
         --status-pending:     #e0a060;
     }
+}
+
+/* ヘッダーの theme toggle ボタン */
+.theme-toggle {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg-muted);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 4px 8px;
+    margin-left: 4px;
+}
+.theme-toggle:hover {
+    color: var(--fg);
+    border-color: var(--fg-muted);
 }
 
 * { box-sizing: border-box; }
