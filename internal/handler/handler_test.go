@@ -78,6 +78,71 @@ func TestRenderInlineBlocksJavascript(t *testing.T) {
 	}
 }
 
+func TestRenderInline_AutolinkBareURL_NoAllowlist(t *testing.T) {
+	h := &Handler{}
+	in := `see https://github.com/jccapital/fundoor/pull/20660#pullrequestreview-4342025233 for review`
+	got := h.renderInline(in)
+	want := `href="https://github.com/jccapital/fundoor/pull/20660#pullrequestreview-4342025233"`
+	if !contains(got, want) {
+		t.Errorf("expected autolinked anchor; got=%q", got)
+	}
+}
+
+func TestRenderInline_AutolinkBareURL_WithAllowlist(t *testing.T) {
+	h := &Handler{linkAllowPrefixes: []string{
+		"https://jccapital.backlog.com/",
+		"https://github.com/jccapital/fundoor/",
+	}}
+	in := `inside https://github.com/jccapital/fundoor/pull/1 and outside https://external.example/x`
+	got := h.renderInline(in)
+	if !contains(got, `href="https://github.com/jccapital/fundoor/pull/1"`) {
+		t.Errorf("allowed URL should be linkified; got=%q", got)
+	}
+	if contains(got, `href="https://external.example/x"`) {
+		t.Errorf("disallowed URL must not be linkified; got=%q", got)
+	}
+	if !contains(got, `https://external.example/x`) {
+		t.Errorf("disallowed URL should still appear as plain text; got=%q", got)
+	}
+	if contains(got, `href="#"`) {
+		t.Errorf("disallowed URL should NOT produce href=#; got=%q", got)
+	}
+}
+
+func TestRenderInline_NoDoubleLinkInsideMarkdownLink(t *testing.T) {
+	// [text](url) ブロック内の URL が autolink で 2 重リンク化されないこと
+	h := &Handler{}
+	in := `[click](https://github.com/jccapital/fundoor/pull/1)`
+	got := h.renderInline(in)
+	// <a ...>click</a> が 1 つだけで、URL を含む追加の <a> が無い
+	if got != `<a href="https://github.com/jccapital/fundoor/pull/1" target="_blank" rel="noopener">click</a>` {
+		t.Errorf("unexpected output (possible double-link); got=%q", got)
+	}
+}
+
+func TestTrimURLTrailingPunct(t *testing.T) {
+	tests := []struct {
+		in        string
+		wantCore  string
+		wantTrail string
+	}{
+		{"https://example.com/path", "https://example.com/path", ""},
+		{"https://example.com/path.", "https://example.com/path", "."},
+		{"https://example.com/path,", "https://example.com/path", ","},
+		{"https://example.com/path).", "https://example.com/path", ")."},
+		{"https://en.wikipedia.org/wiki/Go_(programming_language)", "https://en.wikipedia.org/wiki/Go_(programming_language)", ""},
+		{"https://example.com/x?a=1!", "https://example.com/x?a=1", "!"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			core, trail := trimURLTrailingPunct(tt.in)
+			if core != tt.wantCore || trail != tt.wantTrail {
+				t.Errorf("trimURLTrailingPunct(%q) = (%q, %q), want (%q, %q)", tt.in, core, trail, tt.wantCore, tt.wantTrail)
+			}
+		})
+	}
+}
+
 func TestRenderInline_AllowlistEnforced(t *testing.T) {
 	h := &Handler{linkAllowPrefixes: []string{"https://jccapital.backlog.com/"}}
 	got := h.renderInline(`[blocked](https://external.example/x) [ok](https://jccapital.backlog.com/view/X-1)`)
