@@ -279,7 +279,7 @@ type recordView struct {
 	Sender         string
 	Assignee       string
 	Creator        string
-	ContentExcerpt string
+	ContentExcerpt template.HTML
 	IssueURL       string
 	CommentURL     string
 	CommentHistoryTitle string
@@ -380,7 +380,7 @@ func (h *Handler) toRecordView(snap *backlog.Snapshot, now time.Time, r backlog.
 		Creator:             r.Creator,
 		IsAssignee:          snap.OwnUserName != "" && r.Assignee == snap.OwnUserName,
 		IsCreator:           snap.OwnUserName != "" && r.Creator == snap.OwnUserName,
-		ContentExcerpt:      r.ContentExcerpt,
+		ContentExcerpt:      template.HTML(h.autolinkAndEscape(r.ContentExcerpt)),
 		IssueURL:            r.IssueURL,
 		CommentURL:          r.CommentURL,
 		CommentHistoryTitle: r.CommentHistoryTitle,

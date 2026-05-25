@@ -120,6 +120,19 @@ func TestRenderInline_NoDoubleLinkInsideMarkdownLink(t *testing.T) {
 	}
 }
 
+func TestAutolinkAndEscape_PreservesEscape(t *testing.T) {
+	// ContentExcerpt 用途で template.HTML として出すため、HTML 特殊文字が
+	// 通常通りエスケープされること（XSS にならないこと）を確認する。
+	h := &Handler{}
+	got := h.autolinkAndEscape(`<script>x</script> see https://example.com/?q=<x> end`)
+	if contains(got, `<script>`) {
+		t.Errorf("must escape literal <script>; got=%q", got)
+	}
+	if !contains(got, `href="https://example.com/?q=&lt;x&gt;"`) && !contains(got, `href="https://example.com/?q=`) {
+		t.Errorf("URL should be linkified with escaped href; got=%q", got)
+	}
+}
+
 func TestTrimURLTrailingPunct(t *testing.T) {
 	tests := []struct {
 		in        string
