@@ -189,6 +189,7 @@ type viewData struct {
 	FetchedAtJST   string
 	FetchedSince   string
 	CacheStale     bool
+	StaleLabel     string
 	Counts         map[string]int
 	StatusOrder    []string
 	Buckets        []mentionBucket
@@ -311,6 +312,9 @@ func (h *Handler) handleIndex(c *gin.Context) {
 	data.FetchedAtJST = formatFetchedJST(snap.FetchedAt)
 	data.FetchedSince = humanizeSince(time.Now(), snap.FetchedAt)
 	data.CacheStale = isStale(snap.FetchedAt, 30*time.Minute)
+	if data.CacheStale {
+		data.StaleLabel = staleLabel(time.Now(), snap.FetchedAt)
+	}
 	data.Total = len(snap.Records)
 	data.Counts = countByStatus(snap.Records)
 	data.StatusOrder = statusOrder
@@ -701,6 +705,27 @@ func isStale(iso string, threshold time.Duration) bool {
 		return true
 	}
 	return time.Since(t) > threshold
+}
+
+// staleLabel は CacheStale 時にツールチップへ出す文言を組み立てる。
+// 「⚠ stale」だけだと OS sleep 由来か恒常障害か判別しづらいため、
+// 前回 fetch からの経過時間を併記して深刻度を一目で分かるようにする。
+func staleLabel(now time.Time, isoUTC string) string {
+	t, err := time.Parse(time.RFC3339, isoUTC)
+	if err != nil {
+		return "⚠ stale"
+	}
+	d := now.Sub(t)
+	var dur string
+	switch {
+	case d < time.Hour:
+		dur = fmt.Sprintf("%d分", int(d.Minutes()))
+	case d < 24*time.Hour:
+		dur = fmt.Sprintf("%d時間", int(d.Hours()))
+	default:
+		dur = fmt.Sprintf("%d日", int(d.Hours()/24))
+	}
+	return fmt.Sprintf("⚠ stale (%s fetch 停止)", dur)
 }
 
 // renderHistory turns the markdown comment history into a minimal HTML

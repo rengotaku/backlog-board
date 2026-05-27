@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -257,6 +258,29 @@ func TestRequireSameOrigin(t *testing.T) {
 			r.ServeHTTP(w, req)
 			if w.Code != tt.want {
 				t.Errorf("%s: code=%d want=%d", tt.name, w.Code, tt.want)
+			}
+		})
+	}
+}
+
+func TestStaleLabel(t *testing.T) {
+	now := time.Date(2026, 5, 27, 8, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		iso  string
+		want string
+	}{
+		{"45min ago", now.Add(-45 * time.Minute).Format(time.RFC3339), "⚠ stale (45分 fetch 停止)"},
+		{"3h ago", now.Add(-3 * time.Hour).Format(time.RFC3339), "⚠ stale (3時間 fetch 停止)"},
+		{"7h ago", now.Add(-7 * time.Hour).Format(time.RFC3339), "⚠ stale (7時間 fetch 停止)"},
+		{"2d ago", now.Add(-50 * time.Hour).Format(time.RFC3339), "⚠ stale (2日 fetch 停止)"},
+		{"unparseable", "not-a-date", "⚠ stale"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := staleLabel(now, tt.iso)
+			if got != tt.want {
+				t.Errorf("staleLabel(%q) = %q, want %q", tt.iso, got, tt.want)
 			}
 		})
 	}

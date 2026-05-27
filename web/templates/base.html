@@ -34,7 +34,7 @@
                     <span class="info-tip" role="tooltip">
                         {{if .OwnUserName}}<div><span class="info-label">ユーザー</span>{{.OwnUserName}}</div>{{end}}
                         {{if .Domain}}<div><span class="info-label">ドメイン</span>{{.Domain}}</div>{{end}}
-                        {{if .FetchedAtJST}}<div><span class="info-label">取得</span>{{if .FetchedSince}}{{.FetchedSince}}{{end}}<span class="info-sub">({{.FetchedAtJST}})</span>{{if .CacheStale}}<span class="info-stale">⚠ stale</span>{{end}}</div>{{end}}
+                        {{if .FetchedAtJST}}<div><span class="info-label">取得</span>{{if .FetchedSince}}{{.FetchedSince}}{{end}}<span class="info-sub">({{.FetchedAtJST}})</span>{{if .CacheStale}}<span class="info-stale">{{.StaleLabel}}</span>{{end}}</div>{{end}}
                         {{if .APICallCount}}<div><span class="info-label">前回 API</span>{{.APICallCount}} 回</div>{{end}}
                         <div id="notif-row" hidden><span class="info-label">通知</span><span id="notif-status"></span><button type="button" id="notif-enable-btn" class="info-action" hidden>許可する</button></div>
                     </span>
@@ -220,6 +220,38 @@
         }
 
         setInterval(poll, POLL_MS);
+    })();
+
+    // stale 検知時の自動 refresh（同一 fetched_at に対して 1 回のみ）。
+    // OS sleep 復帰直後にユーザーが画面を開いたケースを救う。
+    // 失敗しても黙って stale 表示を維持する（手動 ↻ で再試行可）。
+    (function() {
+        var staleEl = document.querySelector('.info-wrap.stale');
+        if (!staleEl) return;
+        var badge = document.getElementById('new-badge');
+        if (!badge) return;
+        var fetchedAt = badge.dataset.fetched || '';
+        if (!fetchedAt) return;
+
+        var KEY = 'backlog-board-auto-refresh-for';
+        try {
+            if (sessionStorage.getItem(KEY) === fetchedAt) return;
+            sessionStorage.setItem(KEY, fetchedAt);
+        } catch (e) { return; }
+
+        fetch('/api/refresh', {
+            method: 'POST',
+            cache: 'no-store',
+            redirect: 'manual',
+            credentials: 'same-origin'
+        })
+            .then(function(r) {
+                // 成功は 303 リダイレクト（redirect:'manual' 下では opaqueredirect）。
+                // 5xx 等の失敗時は黙って stale 表示を維持し、ループを避ける。
+                var ok = r.type === 'opaqueredirect' || (r.status >= 200 && r.status < 400);
+                if (ok) window.location.reload();
+            })
+            .catch(function() {});
     })();
     </script>
 </body>
