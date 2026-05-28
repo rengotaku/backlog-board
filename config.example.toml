@@ -26,6 +26,11 @@ domain = "yourspace.backlog.com"
 # 任意: バックグラウンドフェッチの間隔 (デフォルト 15m)
 # fetch_interval = "15m"
 
+# 任意: Notifications を何ページ取得するか (デフォルト 3, 1〜10)
+# 1 ページ = 100 件 (Backlog API 上限)。長期休暇明け等で 100 件超のメンションが
+# 溜まっていた場合の取りこぼし防止用に複数ページ取得する。
+# notification_pages = 3
+
 # 任意: コメント本文中の [text](url) を <a href> として有効化する URL prefix。
 # 自テナント (https://<domain>/) は自動で許可されるため、ここには
 # それ以外で許可したい外部 URL を列挙する。空の場合は外部 URL は無効化される (href="#")。

@@ -390,11 +390,17 @@ func formatCommentHistory(domain, issueKey string, comments []Comment, highlight
 type FetchOptions struct {
 	Count       int
 	IncludeRead bool
+	// Pages は Notifications を何ページ取得するか（1 ページ = Count 件）。
+	// 長期休暇明けの取りこぼし防止用。0 以下なら 1 として扱う。
+	Pages int
 }
 
 func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 	if opts.Count <= 0 {
 		opts.Count = 100
+	}
+	if opts.Pages <= 0 {
+		opts.Pages = 1
 	}
 
 	apiCallsBefore := c.APICalls()
@@ -421,9 +427,35 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 		return nil, fmt.Errorf("myself: %w", err)
 	}
 
-	notifs, err := c.Notifications(opts.Count)
-	if err != nil {
-		return nil, fmt.Errorf("notifications: %w", err)
+	// Notifications を最大 opts.Pages ページ取得（長期休暇明け等で 100 件超のメンションが
+	// 溜まっていた場合の取りこぼし防止）。ページサイズ未満の応答 or 空応答が来たら早期終了。
+	// 重複は seen で除去（Backlog の maxId 境界が実装上 inclusive/exclusive 混在しても安全に）。
+	var notifs []Notification
+	seen := map[int64]bool{}
+	var nextMaxID int64
+	for page := 0; page < opts.Pages; page++ {
+		pageItems, err := c.Notifications(opts.Count, nextMaxID)
+		if err != nil {
+			return nil, fmt.Errorf("notifications page %d: %w", page+1, err)
+		}
+		if len(pageItems) == 0 {
+			break
+		}
+		var minID int64
+		for _, n := range pageItems {
+			if seen[n.ID] {
+				continue
+			}
+			seen[n.ID] = true
+			notifs = append(notifs, n)
+			if minID == 0 || n.ID < minID {
+				minID = n.ID
+			}
+		}
+		if len(pageItems) < opts.Count {
+			break // 取得件数がページサイズ未満 = これ以上の通知は無い
+		}
+		nextMaxID = minID - 1
 	}
 
 	var targets []Notification

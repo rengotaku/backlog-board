@@ -23,13 +23,19 @@ type Config struct {
 	// URL prefix の追加 allowlist。https://<Domain>/ は自動で許可されるため、ここには
 	// それ以外で許可したい外部 URL を列挙する。空の場合は外部 URL は無効化 (#) される。
 	AllowedLinkPrefixes []string `toml:"allowed_link_prefixes"`
+	// NotificationPages は Notifications を何ページ取得するか（1 ページ 100 件）。
+	// 長期休暇明け等で 100 件を超えるメンションが溜まっていた場合の取りこぼし防止用。
+	// デフォルト 3 = 300 件まで遡る。1〜10 にクランプ。
+	NotificationPages int `toml:"notification_pages"`
 }
 
 const (
-	defaultListenAddr      = "127.0.0.1"
-	defaultPort            = "8082"
-	defaultShutdownTimeout = 10 * time.Second
-	defaultFetchInterval   = 15 * time.Minute
+	defaultListenAddr        = "127.0.0.1"
+	defaultPort              = "8082"
+	defaultShutdownTimeout   = 10 * time.Second
+	defaultFetchInterval     = 15 * time.Minute
+	defaultNotificationPages = 3
+	maxNotificationPages     = 10
 )
 
 // Load reads the config TOML from path (or the default location when empty),
@@ -91,6 +97,12 @@ func (c *Config) applyDefaults() error {
 			return fmt.Errorf("resolve home dir: %w", err)
 		}
 		c.CachePath = filepath.Join(home, ".local", "share", "backlog-board", "snapshot.json")
+	}
+	if c.NotificationPages <= 0 {
+		c.NotificationPages = defaultNotificationPages
+	}
+	if c.NotificationPages > maxNotificationPages {
+		c.NotificationPages = maxNotificationPages
 	}
 	return nil
 }

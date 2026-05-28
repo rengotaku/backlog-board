@@ -124,11 +124,17 @@ func (c *Client) Myself() (*User, error) {
 	return &u, nil
 }
 
-func (c *Client) Notifications(count int) ([]Notification, error) {
+// Notifications fetches notifications in desc order. count はページサイズ（API 上限 100）。
+// maxID > 0 のとき、その ID より小さい（より古い）通知のみを返す。連続ページング時に呼び出し側が
+// 前ページ最小 ID - 1 を指定して使う。
+func (c *Client) Notifications(count int, maxID int64) ([]Notification, error) {
 	var ns []Notification
 	params := url.Values{
 		"count": {fmt.Sprintf("%d", count)},
 		"order": {"desc"},
+	}
+	if maxID > 0 {
+		params.Set("maxId", fmt.Sprintf("%d", maxID))
 	}
 	if err := c.get("notifications", params, &ns); err != nil {
 		return nil, err

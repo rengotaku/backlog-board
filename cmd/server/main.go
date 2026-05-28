@@ -67,7 +67,11 @@ func run() error {
 			if err != nil {
 				prev = nil
 			}
-			snap, err := backlog.Fetch(blClient, backlog.FetchOptions{Count: 100, IncludeRead: true}, prev)
+			snap, err := backlog.Fetch(blClient, backlog.FetchOptions{
+				Count:       100,
+				IncludeRead: true,
+				Pages:       cfg.NotificationPages,
+			}, prev)
 			if err != nil {
 				return err
 			}
