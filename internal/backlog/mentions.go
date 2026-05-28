@@ -48,6 +48,9 @@ type Record struct {
 	Starred        bool   `json:"starred"`
 	Replied        bool   `json:"replied"`
 	AtMentioned    bool   `json:"at_mentioned"`
+	// SilentClose は「完了」遷移の本文なし changeLog 通知を自動で確認済に格上げしたケース。
+	// 表示側で「対応済（自動）」と通常の対応済（★/返信）を見分けるために使う。
+	SilentClose    bool   `json:"silent_close"`
 	Status         string `json:"status"`
 	CommentHistoryTitle string `json:"comment_history_title,omitempty"`
 	CommentHistory      string `json:"comment_history,omitempty"`
@@ -573,6 +576,7 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 				Starred:        starred,
 				Replied:        replied,
 				AtMentioned:    atMentioned,
+				SilentClose:    silentClose,
 				Status:         status,
 			}
 			if n.Issue.Status != nil {

@@ -526,9 +526,25 @@ main {
     border: 1px solid var(--border);
 }
 
-.mention-meta .badge.starred { color: var(--checked); border-color: var(--checked); }
-.mention-meta .badge.replied { color: var(--replied); border-color: var(--replied); }
-.mention-meta .badge.at-mention { color: var(--link); border-color: var(--link); font-weight: bold; }
+/* silentClose（完了遷移で自動確認済）は「対応済」バッジに波線下線を付けて、
+   ★/返信による通常の対応済と見分ける */
+.mention-meta .badge.status-badge.silent-close {
+    text-decoration: underline wavy;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+}
+
+/* @・★・↩ は常時表示。デフォルトは淡色（無効）、有効なものだけ .on で色付けする */
+.mention-meta .badge.at-mention,
+.mention-meta .badge.starred,
+.mention-meta .badge.replied {
+    color: var(--fg-muted);
+    border-color: var(--border);
+    opacity: 0.4;
+}
+.mention-meta .badge.at-mention.on { color: var(--link);    border-color: var(--link);    opacity: 1; font-weight: bold; }
+.mention-meta .badge.starred.on    { color: var(--checked);  border-color: var(--checked);  opacity: 1; }
+.mention-meta .badge.replied.on    { color: var(--replied);  border-color: var(--replied);  opacity: 1; }
 
 .mention .excerpt {
     margin: 8px 0 0;

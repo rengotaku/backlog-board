@@ -290,6 +290,7 @@ type recordView struct {
 	Starred        bool
 	Replied        bool
 	AtMentioned    bool
+	SilentClose    bool
 }
 
 func (h *Handler) handleIndex(c *gin.Context) {
@@ -392,6 +393,7 @@ func (h *Handler) toRecordView(snap *backlog.Snapshot, now time.Time, r backlog.
 		Starred:             r.Starred,
 		Replied:             r.Replied,
 		AtMentioned:         r.AtMentioned,
+		SilentClose:         r.SilentClose,
 	}
 }
 

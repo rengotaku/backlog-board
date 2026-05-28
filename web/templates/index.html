@@ -43,10 +43,10 @@
                                 {{if .Assignee}}<span class="meta-label">担当:</span><span class="meta-val{{if .IsAssignee}} me{{end}}">{{.Assignee}}</span>{{end}}
                                 {{if .Creator}}<span class="meta-label">作成:</span><span class="meta-val{{if .IsCreator}} me{{end}}">{{.Creator}}</span>{{end}}
                                 <span class="mention-badges">
-                                    <span class="badge status-badge" data-status="{{.Status}}">{{.Status}}</span>
-                                    {{if .AtMentioned}}<span class="badge at-mention">@</span>{{end}}
-                                    {{if .Starred}}<span class="badge starred">★</span>{{end}}
-                                    {{if .Replied}}<span class="badge replied">↩</span>{{end}}
+                                    <span class="badge status-badge{{if .SilentClose}} silent-close{{end}}" data-status="{{.Status}}"{{if .SilentClose}} title="完了遷移により自動で確認済"{{end}}>{{.Status}}</span>
+                                    <span class="badge at-mention{{if .AtMentioned}} on{{end}}" title="@メンション">@</span>
+                                    <span class="badge starred{{if .Starred}} on{{end}}" title="スター">★</span>
+                                    <span class="badge replied{{if .Replied}} on{{end}}" title="返信済">↩</span>
                                 </span>
                             </div>
                             {{if .ContentExcerpt}}
