@@ -141,6 +141,12 @@ func hasReplyAfter(comments []Comment, userID int, afterISO string) bool {
 		if c.CreatedUser == nil || c.CreatedUser.ID != userID {
 			continue
 		}
+		// 本文の無いコメント（実績時間入力・ステータス変更等の changeLog-only イベント）は
+		// 実返信ではないため返信とみなさない。これを数えると、メンション後に実績時間を
+		// 入力しただけで「返信済 → 対応済」に誤分類される（DSC-11641 で顕在化）。
+		if strings.TrimSpace(c.Content) == "" {
+			continue
+		}
 		if c.Created > afterISO {
 			return true
 		}
