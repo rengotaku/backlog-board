@@ -511,6 +511,14 @@ main {
     font-weight: 700;
 }
 
+/* ステータスラベル・@・★・↩ は行末に右寄せでまとめる */
+.mention-meta .mention-badges {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
 .mention-meta .badge {
     font-size: 11px;
     padding: 1px 6px;
