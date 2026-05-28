@@ -433,11 +433,13 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 	var notifs []Notification
 	seen := map[int64]bool{}
 	var nextMaxID int64
+	pagesFetched := 0
 	for page := 0; page < opts.Pages; page++ {
 		pageItems, err := c.Notifications(opts.Count, nextMaxID)
 		if err != nil {
 			return nil, fmt.Errorf("notifications page %d: %w", page+1, err)
 		}
+		pagesFetched++
 		if len(pageItems) == 0 {
 			break
 		}
@@ -457,6 +459,7 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 		}
 		nextMaxID = minID - 1
 	}
+	slog.Info("notifications fetched", "total", len(notifs), "pages_fetched", pagesFetched, "pages_max", opts.Pages)
 
 	var targets []Notification
 	for _, n := range notifs {

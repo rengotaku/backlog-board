@@ -2,6 +2,7 @@ package backlog
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -40,7 +41,7 @@ func (c *Client) get(path string, params url.Values, out any) error {
 	c.apiCalls.Add(1)
 	resp, err := c.HTTP.Get(u)
 	if err != nil {
-		return fmt.Errorf("GET %s: %w", path, err)
+		return fmt.Errorf("GET %s: %w", path, c.redactErr(err))
 	}
 	defer resp.Body.Close()
 
@@ -52,6 +53,26 @@ func (c *Client) get(path string, params url.Values, out any) error {
 		return fmt.Errorf("decode %s: %w", path, err)
 	}
 	return nil
+}
+
+// redactErr は Backlog API key を含む可能性のあるエラー（典型的には *url.Error の URL）から
+// API key を伏字化する。Backlog API は API key を URL クエリパラメータでしか受け付けないため
+// リクエスト URL に必ずキーが含まれてしまい、Go の net/http が err.Error() でその URL を
+// 露出させる結果ログに平文で残ってしまう。これを防ぐためのフィルタ。
+func (c *Client) redactErr(err error) error {
+	if err == nil || c.APIKey == "" {
+		return err
+	}
+	// *url.Error の URL フィールドを直接置換（型を保ったまま wrap される）
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		ue.URL = strings.ReplaceAll(ue.URL, c.APIKey, "<REDACTED>")
+	}
+	// 万が一 Error() 文字列の他所にキーが残っていても拾えるよう、文字列レベルでも安全網を張る
+	if strings.Contains(err.Error(), c.APIKey) {
+		return errors.New(strings.ReplaceAll(err.Error(), c.APIKey, "<REDACTED>"))
+	}
+	return err
 }
 
 type User struct {
