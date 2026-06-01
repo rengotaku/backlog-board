@@ -161,6 +161,77 @@ body {
     font-weight: 600;
 }
 
+/* --- header search box --- */
+.search-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px 8px;
+    transition: border-color 0.15s;
+}
+.search-wrap:focus-within {
+    border-color: var(--link);
+}
+.search-icon {
+    font-size: 11px;
+    color: var(--fg-muted);
+    line-height: 1;
+}
+.search-input {
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--fg);
+    font-size: 12px;
+    width: 180px;
+    padding: 2px 0;
+}
+.search-input::placeholder { color: var(--fg-muted); }
+
+/* 検索ヒット数バッジ。タブバッジの右に出す */
+.tab-badge.search-hit {
+    background: var(--link);
+    color: var(--bg);
+    border-color: transparent;
+    margin-left: 4px;
+}
+.tab-badge.search-hit::before { content: "🔍 "; }
+
+/* サブタブ chip (.count / .count-mode) 内の検索ヒット数バッジ */
+.chip-hit {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--link);
+    color: var(--bg);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 16px;
+}
+.chip-hit::before { content: "🔍 "; }
+
+/* 検索でヒットしないものを隠す */
+.search-out { display: none !important; }
+
+/* 検索一致箇所のハイライト */
+mark.search-mark {
+    background: #fff48f;
+    color: #1f2328;
+    padding: 0 1px;
+    border-radius: 2px;
+}
+:root[data-theme="dark"] mark.search-mark { background: #d6b500; color: #1f2328; }
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]):not([data-theme="dark"]) mark.search-mark {
+        background: #d6b500; color: #1f2328;
+    }
+}
+
 /* --- info icon (hover で詳細表示) --- */
 
 .info-wrap {
@@ -524,14 +595,6 @@ main {
     padding: 1px 6px;
     border-radius: 3px;
     border: 1px solid var(--border);
-}
-
-/* silentClose（完了遷移で自動確認済）は「対応済」バッジに波線下線を付けて、
-   ★/返信による通常の対応済と見分ける */
-.mention-meta .badge.status-badge.silent-close {
-    text-decoration: underline wavy;
-    text-decoration-thickness: 1px;
-    text-underline-offset: 2px;
 }
 
 /* @・★・↩ は常時表示。デフォルトは淡色（無効）、有効なものだけ .on で色付けする */

@@ -235,6 +235,10 @@
 
     <script>
     (function() {
+        // 検索フィルタとステータスフィルタの間で共有する「セクション空判定」リカルク。
+        // 実体は検索ブロックで差し替えられる。未初期化時は no-op。
+        var searchRecalc = function() {};
+
         // --- tab switching ---
         var tabBtns = document.querySelectorAll('.tab-btn');
         var tabPanes = document.querySelectorAll('.tab-pane');
@@ -294,6 +298,9 @@
                     var hasVisible = !!b.querySelector('.mention:not(.hidden)');
                     b.classList.toggle('hidden', !hasVisible);
                 });
+
+                // 検索フィルタ適用中ならセクション空判定を再評価する
+                searchRecalc();
             }
 
             countEls.forEach(function(el) {
@@ -386,6 +393,276 @@
             });
 
             applyHidden();
+        }
+
+        // --- header search (LIKE filter, AND with status tabs) ---
+        // 対象: IssueKey + Summary + ContentExcerpt の部分一致（複数語は AND）。
+        // ステータスタブで付く .hidden、検索で付く .search-out は CSS で display:none。両方 AND で消える。
+        var searchInput = document.getElementById('search-input');
+        if (searchInput) {
+            var allItems = [];
+            // mentions タブ
+            document.querySelectorAll('#tab-mentions .mention').forEach(function(el) {
+                allItems.push(makeItem(el, 'mentions'));
+            });
+            // myissues タブ: active / group / passed の .mention と、kanban の .kanban-card
+            document.querySelectorAll('#tab-myissues .mention').forEach(function(el) {
+                allItems.push(makeItem(el, 'myissues'));
+            });
+            document.querySelectorAll('#tab-myissues .kanban-card').forEach(function(el) {
+                if (el.classList.contains('kanban-card-empty')) return;
+                allItems.push(makeItem(el, 'myissues'));
+            });
+
+            function makeItem(el, tab) {
+                var keyEl = el.querySelector('.key');
+                var sumEl = el.querySelector('.summary') || el.querySelector('.kanban-card-summary');
+                var excEl = el.querySelector('.excerpt');
+                var histEl = el.querySelector('details.history-wrap');
+                var key = keyEl ? keyEl.textContent.trim() : '';
+                var headText = [
+                    key,
+                    sumEl ? sumEl.textContent : '',
+                    excEl ? excEl.textContent : ''
+                ].join(' ').toLowerCase();
+                // コメント履歴は別途持つ。検索コーパスには含めるが、ヒット位置を識別したいので分離。
+                var historyText = histEl ? histEl.textContent.toLowerCase() : '';
+                return {
+                    el: el, tab: tab, key: key,
+                    headText: headText,
+                    historyText: historyText,
+                    text: headText + ' ' + historyText,
+                    historyEl: histEl
+                };
+            }
+
+            var tabBtnsByTab = {};
+            document.querySelectorAll('.tab-btn').forEach(function(btn) {
+                tabBtnsByTab[btn.dataset.tab] = btn;
+            });
+
+            function ensureHitBadge(btn) {
+                var badge = btn.querySelector('.tab-badge.search-hit');
+                if (!badge) {
+                    badge = document.createElement('span');
+                    badge.className = 'tab-badge search-hit';
+                    btn.appendChild(badge);
+                }
+                return badge;
+            }
+            function removeHitBadge(btn) {
+                var badge = btn.querySelector('.tab-badge.search-hit');
+                if (badge) badge.remove();
+            }
+            function ensureChipHit(chip) {
+                var badge = chip.querySelector('.chip-hit');
+                if (!badge) {
+                    badge = document.createElement('span');
+                    badge.className = 'chip-hit';
+                    chip.appendChild(badge);
+                }
+                return badge;
+            }
+            function clearAllChipHits() {
+                document.querySelectorAll('.chip-hit').forEach(function(el) { el.remove(); });
+            }
+            function setChipHit(chip, n) {
+                if (n === 0) {
+                    var badge = chip.querySelector('.chip-hit');
+                    if (badge) badge.remove();
+                } else {
+                    ensureChipHit(chip).textContent = String(n);
+                }
+            }
+
+            // --- ハイライト処理 ---
+            // 一致トークンを <mark class="search-mark"> で包む。テキストノードのみを書き換えるので
+            // 既存リンク等の構造は破壊しない。
+            function escapeRe(s) {
+                return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
+            function buildHighlightRegex(tokens) {
+                if (!tokens.length) return null;
+                var sorted = tokens.slice().sort(function(a, b) { return b.length - a.length; });
+                return new RegExp('(' + sorted.map(escapeRe).join('|') + ')', 'gi');
+            }
+            function highlightTextNodes(root, re) {
+                if (!root || !re) return;
+                var SKIP = { SCRIPT: 1, STYLE: 1, MARK: 1 };
+                var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+                    acceptNode: function(node) {
+                        if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+                        var p = node.parentNode;
+                        if (p && SKIP[p.nodeName]) return NodeFilter.FILTER_REJECT;
+                        return NodeFilter.FILTER_ACCEPT;
+                    }
+                });
+                var targets = [];
+                while (walker.nextNode()) targets.push(walker.currentNode);
+                targets.forEach(function(node) {
+                    var text = node.nodeValue;
+                    re.lastIndex = 0;
+                    if (!re.test(text)) return;
+                    re.lastIndex = 0;
+                    var frag = document.createDocumentFragment();
+                    var last = 0;
+                    var m;
+                    while ((m = re.exec(text)) !== null) {
+                        if (m.index > last) {
+                            frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+                        }
+                        var mk = document.createElement('mark');
+                        mk.className = 'search-mark';
+                        mk.textContent = m[0];
+                        frag.appendChild(mk);
+                        last = m.index + m[0].length;
+                        if (m.index === re.lastIndex) re.lastIndex++;
+                    }
+                    if (last < text.length) {
+                        frag.appendChild(document.createTextNode(text.slice(last)));
+                    }
+                    node.parentNode.replaceChild(frag, node);
+                });
+            }
+            function clearHighlights() {
+                document.querySelectorAll('mark.search-mark').forEach(function(m) {
+                    var p = m.parentNode;
+                    if (!p) return;
+                    p.replaceChild(document.createTextNode(m.textContent), m);
+                    p.normalize();
+                });
+            }
+            // 検索で自動オープンした details を一覧で覚えておき、クリア時に閉じる。
+            // ユーザー操作で開いた details には触らない。
+            var autoOpenedDetails = [];
+            function closeAutoOpenedDetails() {
+                autoOpenedDetails.forEach(function(d) {
+                    if (d && d.dataset.searchOpened === '1') {
+                        d.open = false;
+                        delete d.dataset.searchOpened;
+                    }
+                });
+                autoOpenedDetails = [];
+            }
+
+            // 各サブ chip のヒット数を計算。
+            // mentions: data-status 別に .mention:not(.search-out) を数える（"" は 全て）。
+            // myissues: 各モードの可視要素を数える（mode は表示形態が違うだけで同一 issue 集合）。
+            function updateChipHits() {
+                document.querySelectorAll('#counts .count').forEach(function(chip) {
+                    var st = chip.dataset.status;
+                    var sel = st === ''
+                        ? '#tab-mentions .mention:not(.search-out)'
+                        : '#tab-mentions .mention[data-status="' + st + '"]:not(.search-out)';
+                    setChipHit(chip, document.querySelectorAll(sel).length);
+                });
+                document.querySelectorAll('#myissue-modes .count-mode').forEach(function(chip) {
+                    var mode = chip.dataset.myissueMode;
+                    var n = 0;
+                    if (mode === 'kanban') {
+                        n = document.querySelectorAll('[data-myissue-block="kanban"] .kanban-card:not(.kanban-card-empty):not(.search-out)').length;
+                    } else {
+                        n = document.querySelectorAll('[data-myissue-block="' + mode + '"] .mention:not(.search-out)').length;
+                    }
+                    setChipHit(chip, n);
+                });
+            }
+
+            // 検索後にセクション（bucket / group / kanban-col）の空判定を再計算。
+            // .hidden は status filter、.search-out は検索が所有。両方とも visible に寄与しない。
+            // status filter からも呼ばれる（共有変数 searchRecalc を差し替える）。
+            searchRecalc = function() {
+                var containerSelectors = [
+                    '#tab-mentions .bucket',
+                    '[data-myissue-block="active"] .bucket',
+                    '.myissue-group',
+                    '.kanban-col'
+                ];
+                containerSelectors.forEach(function(sel) {
+                    document.querySelectorAll(sel).forEach(function(c) {
+                        var hasVisible = !!c.querySelector(
+                            '.mention:not(.hidden):not(.search-out), .kanban-card:not(.kanban-card-empty):not(.search-out)'
+                        );
+                        c.classList.toggle('search-out', !hasVisible);
+                    });
+                });
+            };
+
+            function applySearch(rawQuery) {
+                var q = (rawQuery || '').trim().toLowerCase();
+                // 古いハイライトと自動オープンは毎回リセットしてから判定する
+                clearHighlights();
+                closeAutoOpenedDetails();
+                if (!q) {
+                    document.querySelectorAll('.search-out').forEach(function(el) {
+                        el.classList.remove('search-out');
+                    });
+                    Object.keys(tabBtnsByTab).forEach(function(t) { removeHitBadge(tabBtnsByTab[t]); });
+                    clearAllChipHits();
+                    return;
+                }
+                var tokens = q.split(/\s+/).filter(Boolean);
+                var re = buildHighlightRegex(tokens);
+                var hitKeysByTab = { mentions: {}, myissues: {} };
+                allItems.forEach(function(it) {
+                    var hit = tokens.every(function(t) { return it.text.indexOf(t) >= 0; });
+                    it.el.classList.toggle('search-out', !hit);
+                    if (!hit) return;
+                    if (it.key && hitKeysByTab[it.tab]) {
+                        hitKeysByTab[it.tab][it.key] = true;
+                    }
+                    // ハイライト: head 側のフィールドを個別に。
+                    ['.key', '.summary', '.kanban-card-summary', '.excerpt'].forEach(function(sel) {
+                        var f = it.el.querySelector(sel);
+                        if (f) highlightTextNodes(f, re);
+                    });
+                    // コメント履歴にヒットがある場合は <details> を自動展開してハイライト。
+                    if (it.historyEl) {
+                        var hitInHistory = tokens.every(function(t) { return it.historyText.indexOf(t) >= 0; });
+                        if (hitInHistory) {
+                            if (!it.historyEl.open) {
+                                it.historyEl.open = true;
+                                it.historyEl.dataset.searchOpened = '1';
+                                autoOpenedDetails.push(it.historyEl);
+                            }
+                            highlightTextNodes(it.historyEl, re);
+                        }
+                    }
+                });
+                Object.keys(tabBtnsByTab).forEach(function(t) {
+                    var bucket = hitKeysByTab[t] || {};
+                    var n = Object.keys(bucket).length;
+                    var btn = tabBtnsByTab[t];
+                    if (n === 0) {
+                        removeHitBadge(btn);
+                    } else {
+                        ensureHitBadge(btn).textContent = String(n);
+                    }
+                });
+                searchRecalc();
+                updateChipHits();
+            }
+
+            var debTimer = null;
+            searchInput.addEventListener('input', function() {
+                if (debTimer) clearTimeout(debTimer);
+                var v = searchInput.value;
+                debTimer = setTimeout(function() { applySearch(v); }, 80);
+            });
+            searchInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    searchInput.value = '';
+                    applySearch('');
+                }
+            });
+            // Cmd/Ctrl + K で検索フォーカス
+            document.addEventListener('keydown', function(e) {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                    e.preventDefault();
+                    searchInput.focus();
+                    searchInput.select();
+                }
+            });
         }
     })();
     </script>

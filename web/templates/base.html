@@ -28,6 +28,12 @@
             {{.Title}}
         </h1>
         <div class="meta">
+            {{if .FetchedAt}}
+                <label class="search-wrap" aria-label="課題検索">
+                    <span class="search-icon" aria-hidden="true">🔍</span>
+                    <input type="search" id="search-input" class="search-input" placeholder="検索…" autocomplete="off">
+                </label>
+            {{end}}
             {{if or .OwnUserName .Domain .FetchedAtJST}}
                 <span class="info-wrap{{if .CacheStale}} stale{{end}}" tabindex="0" aria-label="セッション情報">
                     <span class="info-icon" aria-hidden="true">ⓘ</span>

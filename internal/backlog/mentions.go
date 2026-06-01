@@ -646,6 +646,25 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 			formatCommentHistory(c.Domain, myIssues[i].IssueKey, comments, 0, me.ID)
 	}
 
+	// パス済みから「未対応 mention がある課題」を除外する。
+	// メンションタブで未対応として扱う方が自分の TODO 性が高いため、両タブに重複表示しない。
+	unhandledMentionIDs := map[int]bool{}
+	for _, r := range records {
+		if r.Status == StatusUnhandled {
+			unhandledMentionIDs[r.IssueID] = true
+		}
+	}
+	if len(unhandledMentionIDs) > 0 {
+		filtered := make([]PassedIssueRecord, 0, len(passedIssues))
+		for _, p := range passedIssues {
+			if unhandledMentionIDs[p.IssueID] {
+				continue
+			}
+			filtered = append(filtered, p)
+		}
+		passedIssues = filtered
+	}
+
 	// パス済み: コメント履歴を付与してソート
 	for i := range passedIssues {
 		comments, ok := commentsCache[passedIssues[i].IssueID]
