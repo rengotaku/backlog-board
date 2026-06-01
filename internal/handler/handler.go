@@ -277,6 +277,9 @@ type recordView struct {
 	IssueSummary   string
 	IssueStatus    string
 	Status         string
+	// CCReason は Status=="CC" のときの発火由来（issue_created / cc_mention）。
+	// テンプレートで小バッジを出し分けるために使う。非 CC では空。
+	CCReason       string
 	Sender         string
 	Assignee       string
 	Creator        string
@@ -380,6 +383,7 @@ func (h *Handler) toRecordView(snap *backlog.Snapshot, now time.Time, r backlog.
 		IssueSummary:        r.IssueSummary,
 		IssueStatus:         r.IssueStatus,
 		Status:              displayStatus(r.Status),
+		CCReason:            r.CCReason,
 		Sender:              r.Sender,
 		Assignee:            r.Assignee,
 		Creator:             r.Creator,

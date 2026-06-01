@@ -44,6 +44,10 @@
                                 {{if .Creator}}<span class="meta-label">作成:</span><span class="meta-val{{if .IsCreator}} me{{end}}">{{.Creator}}</span>{{end}}
                                 <span class="mention-badges">
                                     <span class="badge status-badge{{if .SilentClose}} silent-close{{end}}" data-status="{{.Status}}"{{if .SilentClose}} title="完了遷移により自動で確認済"{{end}}>{{.Status}}</span>
+                                    {{if eq .Status "CC"}}
+                                        {{if eq .CCReason "issue_created"}}<span class="badge cc-reason" data-cc-reason="issue_created" title="起票時に通知欄に追加された（自分宛のアクションではない）">起票通知</span>{{end}}
+                                        {{if eq .CCReason "cc_mention"}}<span class="badge cc-reason" data-cc-reason="cc_mention" title="コメント本文に cc: @自分 が記載された">cc:@</span>{{end}}
+                                    {{end}}
                                     <span class="badge at-mention{{if .AtMentioned}} on{{end}}" title="@メンション">@</span>
                                     <span class="badge starred{{if .Starred}} on{{end}}" title="スター">★</span>
                                     <span class="badge replied{{if .Replied}} on{{end}}" title="返信済">↩</span>

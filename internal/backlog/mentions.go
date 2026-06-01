@@ -23,6 +23,11 @@ const (
 	// 担当課題タブで拾えるため、メンションタブでは 連絡のみ として分類する。
 	reasonIssueCreated = 3
 
+	// CCReason は Record.Status が "CC" のときの発火由来。UI 側で
+	// 「起票時の通知欄追加」と「cc: @自分 メンション」を見分けるために使う。
+	CCReasonIssueCreated = "issue_created"
+	CCReasonCCMention    = "cc_mention"
+
 	commentTruncateChars = 200
 	excerptChars         = 120
 	historyLimit         = 10
@@ -52,6 +57,9 @@ type Record struct {
 	// 表示側で「対応済（自動）」と通常の対応済（★/返信）を見分けるために使う。
 	SilentClose    bool   `json:"silent_close"`
 	Status         string `json:"status"`
+	// CCReason は Status=="CC" のときに由来を示す。issue_created / cc_mention。
+	// 非 CC ではゼロ値。`omitempty` で snapshot.json を肥大化させない。
+	CCReason            string `json:"cc_reason,omitempty"`
 	CommentHistoryTitle string `json:"comment_history_title,omitempty"`
 	CommentHistory      string `json:"comment_history,omitempty"`
 }
@@ -592,7 +600,15 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 			// CC 判定（受動的に来る通知。メンションタブでの反応は不要だが認知はしておきたい）:
 			//   - 起票時通知（reason=3）: 担当課題タブで拾えるため反応不要
 			//   - cc: パターンの受動メンション: 本人宛ではないため反応不要
-			isCC := n.Reason == reasonIssueCreated || isCCMention(cm.Content, me.Name)
+			// 由来を CCReason として保持し、UI で見分けられるようにする。
+			ccReason := ""
+			switch {
+			case n.Reason == reasonIssueCreated:
+				ccReason = CCReasonIssueCreated
+			case isCCMention(cm.Content, me.Name):
+				ccReason = CCReasonCCMention
+			}
+			isCC := ccReason != ""
 			status := determineStatus(replied, starred, silentClose, isCC)
 
 			rec := Record{
@@ -613,6 +629,9 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 				AtMentioned:    atMentioned,
 				SilentClose:    silentClose,
 				Status:         status,
+			}
+			if status == StatusCC {
+				rec.CCReason = ccReason
 			}
 			if n.Issue.Status != nil {
 				rec.IssueStatus = n.Issue.Status.Name

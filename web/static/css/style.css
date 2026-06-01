@@ -499,6 +499,15 @@ main {
 .mention-meta .badge.status-badge[data-status="CC"]     { color: var(--cc);        border-color: var(--cc); }
 .mention-meta .badge.status-badge[data-status="対応済"] { color: var(--replied);   border-color: var(--replied); }
 
+/* CC 由来 chip: status-badge "CC" の隣に小さく出す。
+   起票通知 と cc:@ メンションを見分けるための補助情報。 */
+.mention-meta .badge.cc-reason {
+    color: var(--cc);
+    border-color: var(--cc);
+    opacity: 0.75;
+    font-size: 10px;
+}
+
 .empty {
     margin: 0;
     padding: 16px;
