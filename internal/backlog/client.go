@@ -55,6 +55,41 @@ func (c *Client) get(path string, params url.Values, out any) error {
 	return nil
 }
 
+// postForm は state-changing 系の Backlog API（POST/PUT 等）に form-urlencoded で送る。
+// apiKey は GET と同じく URL クエリに乗せる（form body に入れると HTTP エラー時の
+// 文字列ダンプで露出しやすいため）。failure 時のステータスは error メッセージに含めるが、
+// レスポンス body は redactErr の対象にはならないため API key を leak しない。
+func (c *Client) postForm(path string, params url.Values) error {
+	u := fmt.Sprintf("https://%s/api/v2/%s?apiKey=%s", c.Domain, path, url.QueryEscape(c.APIKey))
+
+	c.apiCalls.Add(1)
+	body := strings.NewReader(params.Encode())
+	req, err := http.NewRequest(http.MethodPost, u, body)
+	if err != nil {
+		return c.redactErr(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("POST %s: %w", path, c.redactErr(err))
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("POST %s: status %d", path, resp.StatusCode)
+	}
+	return nil
+}
+
+// PostCommentStar はコメントに自分のスターを付ける。
+// Backlog API はスター付与に冪等性が無く、重複呼び出し時のレスポンスは保証されない。
+// 呼び出し側で「スター済みのコメントへは呼ばない」ガードを入れること。
+func (c *Client) PostCommentStar(commentID int) error {
+	return c.postForm("stars", url.Values{
+		"commentId": {fmt.Sprintf("%d", commentID)},
+	})
+}
+
 // redactErr は Backlog API key を含む可能性のあるエラー（典型的には *url.Error の URL）から
 // API key を伏字化する。Backlog API は API key を URL クエリパラメータでしか受け付けないため
 // リクエスト URL に必ずキーが含まれてしまい、Go の net/http が err.Error() でその URL を

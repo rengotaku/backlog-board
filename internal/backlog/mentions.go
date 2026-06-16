@@ -56,7 +56,11 @@ type Record struct {
 	// SilentClose は「完了」遷移の本文なし changeLog 通知を自動で確認済に格上げしたケース。
 	// 表示側で「対応済（自動）」と通常の対応済（★/返信）を見分けるために使う。
 	SilentClose    bool   `json:"silent_close"`
-	Status         string `json:"status"`
+	// IsEvent は本文が空で changeLog のみのコメント（担当者変更・ステータス変更等）かどうか。
+	// UI で「本文なし（担当者変更）」のようなプレースホルダ表示を出すために使う。
+	IsEvent     bool     `json:"is_event,omitempty"`
+	EventFields []string `json:"event_fields,omitempty"`
+	Status      string   `json:"status"`
 	// CCReason は Status=="CC" のときに由来を示す。issue_created / cc_mention。
 	// 非 CC ではゼロ値。`omitempty` で snapshot.json を肥大化させない。
 	CCReason            string `json:"cc_reason,omitempty"`
@@ -611,6 +615,20 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 			isCC := ccReason != ""
 			status := determineStatus(replied, starred, silentClose, isCC)
 
+			isEvent := cm.IsEvent()
+			var eventFields []string
+			if isEvent {
+				eventFields = make([]string, 0, len(cm.ChangeLog))
+				seen := map[string]bool{}
+				for _, cl := range cm.ChangeLog {
+					if cl.Field == "" || seen[cl.Field] {
+						continue
+					}
+					seen[cl.Field] = true
+					eventFields = append(eventFields, cl.Field)
+				}
+			}
+
 			rec := Record{
 				NotificationID: n.ID,
 				NotifiedAt:     n.Created,
@@ -628,6 +646,8 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 				Replied:        replied,
 				AtMentioned:    atMentioned,
 				SilentClose:    silentClose,
+				IsEvent:        isEvent,
+				EventFields:    eventFields,
 				Status:         status,
 			}
 			if status == StatusCC {

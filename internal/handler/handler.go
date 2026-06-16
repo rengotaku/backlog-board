@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,10 +27,12 @@ import (
 //   例: "http://127.0.0.1:8082", "http://localhost:8082"。
 // LinkAllowPrefixes: コメント本文中の [text](url) リンクを <a href> として有効化する URL prefix。
 //   nil または空 (デフォルト) では http/https/mailse 全許可。非空にすると prefix allowlist で厳格化する。
+// PostCommentStar: スター付与 callback。nil の場合は /api/star エンドポイントを公開しない。
 type Options struct {
 	AllowedHosts      []string
 	AllowedOrigins    []string
 	LinkAllowPrefixes []string
+	PostCommentStar   func(commentID int) error
 }
 
 type Handler struct {
@@ -36,6 +40,7 @@ type Handler struct {
 	templates         map[string]*template.Template
 	staticFS          fs.FS
 	refresh           func() error
+	postStar          func(commentID int) error
 	opts              Options
 	linkAllowPrefixes []string
 }
@@ -46,6 +51,7 @@ func New(cache *store.Cache, templates map[string]*template.Template, staticFS f
 		templates:         templates,
 		staticFS:          staticFS,
 		refresh:           refresh,
+		postStar:          opts.PostCommentStar,
 		opts:              opts,
 		linkAllowPrefixes: opts.LinkAllowPrefixes,
 	}
@@ -62,6 +68,9 @@ func (h *Handler) Routes() http.Handler {
 	r.GET("/api/state", h.handleState)
 	if h.refresh != nil {
 		r.POST("/api/refresh", h.handleRefresh)
+	}
+	if h.postStar != nil {
+		r.POST("/api/star", h.handleStar)
 	}
 	return r
 }
@@ -183,6 +192,58 @@ func (h *Handler) handleRefresh(c *gin.Context) {
 	c.Redirect(http.StatusSeeOther, "/")
 }
 
+// handleStar は指定 comment_id にスター付与する。
+// 流れ: snapshot からスター済か確認 → 未済なら Backlog API POST → refresh で再フェッチ。
+// レスポンスは JSON で {"ok": true, "already_starred": bool}。
+func (h *Handler) handleStar(c *gin.Context) {
+	cidStr := c.PostForm("comment_id")
+	if cidStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "comment_id required"})
+		return
+	}
+	cid, err := strconv.Atoi(cidStr)
+	if err != nil || cid <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid comment_id"})
+		return
+	}
+
+	// snapshot から該当 comment を特定し、既に Starred なら no-op。
+	// 同一 commentID が複数 record にまたがるケース（reason 違いの通知）も「自分のスター」状態は同じなので
+	// 1件でも Starred=true があれば早期 return する。
+	if snap, err := h.cache.Load(); err == nil {
+		known := false
+		for _, r := range snap.Records {
+			if r.CommentID != cid {
+				continue
+			}
+			known = true
+			if r.Starred {
+				c.JSON(http.StatusOK, gin.H{"ok": true, "already_starred": true})
+				return
+			}
+		}
+		if !known {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown comment_id"})
+			return
+		}
+	}
+
+	if err := h.postStar(cid); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// refresh は失敗してもスター付与自体は成功しているのでログのみ。
+	// 次回 15 分の定期 fetch でも拾える。
+	if h.refresh != nil {
+		if err := h.refresh(); err != nil {
+			slog.Warn("refresh after star failed", "error", err)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 type viewData struct {
 	Title          string
 	FetchedAt      string
@@ -286,6 +347,7 @@ type recordView struct {
 	ContentExcerpt template.HTML
 	IssueURL       string
 	CommentURL     string
+	CommentID      int
 	CommentHistoryTitle string
 	CommentHistory      template.HTML
 	IsAssignee     bool
@@ -294,6 +356,10 @@ type recordView struct {
 	Replied        bool
 	AtMentioned    bool
 	SilentClose    bool
+	// IsEvent は本文なし changeLog 通知の場合に true。EventFieldsLabel は
+	// テンプレートに表示する和訳済みラベル（例: "担当者変更, ステータス変更"）。
+	IsEvent          bool
+	EventFieldsLabel string
 }
 
 func (h *Handler) handleIndex(c *gin.Context) {
@@ -392,13 +458,59 @@ func (h *Handler) toRecordView(snap *backlog.Snapshot, now time.Time, r backlog.
 		ContentExcerpt:      template.HTML(h.autolinkAndEscape(r.ContentExcerpt)),
 		IssueURL:            r.IssueURL,
 		CommentURL:          r.CommentURL,
+		CommentID:           r.CommentID,
 		CommentHistoryTitle: r.CommentHistoryTitle,
 		CommentHistory:      template.HTML(h.renderHistory(r.CommentHistory)),
 		Starred:             r.Starred,
 		Replied:             r.Replied,
 		AtMentioned:         r.AtMentioned,
 		SilentClose:         r.SilentClose,
+		IsEvent:             r.IsEvent,
+		EventFieldsLabel:    eventFieldsLabel(r.EventFields),
 	}
+}
+
+// eventFieldLabels は Backlog API の changeLog.field を和訳した表示ラベル。
+// 一覧は Backlog API ドキュメント (https://developer.nulab.com/docs/backlog/api/2/get-comment-list/) より抜粋。
+// 未知のフィールドはそのまま文字列を返す（新規追加 field の検出にもなる）。
+var eventFieldLabels = map[string]string{
+	"assigner":         "担当者変更",
+	"status":           "ステータス変更",
+	"resolution":       "完了理由変更",
+	"summary":          "件名変更",
+	"description":      "詳細変更",
+	"priority":         "優先度変更",
+	"limitDate":        "期限日変更",
+	"startDate":        "開始日変更",
+	"estimatedHours":   "予定時間変更",
+	"actualHours":      "実績時間変更",
+	"issueType":        "種別変更",
+	"category":         "カテゴリー変更",
+	"version":          "発生バージョン変更",
+	"milestone":        "マイルストーン変更",
+	"component":        "コンポーネント変更",
+	"parentIssue":      "親課題変更",
+	"attachment":       "添付ファイル変更",
+	"notification":     "お知らせ変更",
+	"commit":           "コミット連携",
+	"pullRequest":      "プルリクエスト連携",
+	"pullRequestComment": "プルリク コメント連携",
+	"externalFile":     "外部ファイル変更",
+}
+
+func eventFieldsLabel(fields []string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	labels := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if l, ok := eventFieldLabels[f]; ok {
+			labels = append(labels, l)
+		} else {
+			labels = append(labels, f)
+		}
+	}
+	return strings.Join(labels, ", ")
 }
 
 // メンションを「課題単位」に集約し、最新通知時刻で時間バケット (1h/6h/24h/1w/それ以前)
