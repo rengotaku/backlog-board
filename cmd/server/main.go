@@ -59,6 +59,7 @@ func run() error {
 	cache := store.New(cfg.CachePath)
 
 	var refreshFn func() error
+	var postStarFn func(commentID int) error
 	if apiKey != "" {
 		blClient := backlog.NewClient(cfg.Domain, apiKey)
 		refreshFn = func() error {
@@ -76,6 +77,9 @@ func run() error {
 				return err
 			}
 			return cache.Save(snap)
+		}
+		postStarFn = func(commentID int) error {
+			return blClient.PostCommentStar(commentID)
 		}
 	}
 
@@ -137,6 +141,7 @@ func run() error {
 		AllowedHosts:      allowedHosts,
 		AllowedOrigins:    allowedOrigins,
 		LinkAllowPrefixes: linkAllowPrefixes,
+		PostCommentStar:   postStarFn,
 	})
 
 	srv := &http.Server{

@@ -618,6 +618,24 @@ main {
 .mention-meta .badge.starred.on    { color: var(--checked);  border-color: var(--checked);  opacity: 1; }
 .mention-meta .badge.replied.on    { color: var(--replied);  border-color: var(--replied);  opacity: 1; }
 
+/* スター付与ボタン（未スター時に表示される clickable な ★）。
+   背景・境界・余白は .badge と揃え、hover で色だけ強調する。disabled 中はカーソル/不透明度で進行を示す。 */
+.mention-meta button.badge.star-btn {
+    cursor: pointer;
+    background: transparent;
+    font: inherit;
+    line-height: inherit;
+}
+.mention-meta button.badge.star-btn:hover {
+    color: var(--checked);
+    border-color: var(--checked);
+    opacity: 0.9;
+}
+.mention-meta button.badge.star-btn:disabled {
+    cursor: progress;
+    opacity: 0.6;
+}
+
 .mention .excerpt {
     margin: 8px 0 0;
     color: var(--fg);
@@ -626,6 +644,13 @@ main {
     padding: 8px 12px;
     border-radius: 4px;
     word-break: break-word;
+}
+
+/* 本文なし changeLog 通知の placeholder。muted な見た目で「本文がない」ことを明示する。 */
+.mention .excerpt.event-only {
+    color: var(--fg-muted);
+    font-style: italic;
+    opacity: 0.85;
 }
 
 /* 本文中のリンク（コメント抜粋 / コメント履歴本体）はブラウザ既定の暗紫色だと
