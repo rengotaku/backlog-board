@@ -1305,6 +1305,11 @@ main {
     white-space: nowrap;
 }
 
+/* 概要セクションとコメント履歴セクションの間にギャップを置く（flex gap に加算） */
+.backlog-detail-content .backlog-detail-section + .backlog-detail-section {
+    margin-top: 16px;
+}
+
 /* コメント履歴の見出し: 「コメント履歴」を目立たせ、「(最新N件)」は控えめ */
 .backlog-detail-history-head {
     display: flex;
