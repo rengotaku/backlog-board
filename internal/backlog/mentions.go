@@ -332,6 +332,7 @@ func fetchMyIssues(c *Client, userID int) ([]MyIssueRecord, error) {
 			IssueID:      issue.ID,
 			IssueKey:     issue.IssueKey,
 			IssueSummary: issue.Summary,
+			Description:  issue.Description,
 			IssueURL:     fmt.Sprintf("https://%s/view/%s", c.Domain, issue.IssueKey),
 			UpdatedAt:    issue.Updated,
 			UpdatedAtJST: formatJST(issue.Updated),

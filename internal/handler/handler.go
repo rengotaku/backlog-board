@@ -369,11 +369,11 @@ type myIssueView struct {
 	LatestSinceJST      string
 	CommentHistoryTitle string
 	CommentHistory      template.HTML
-	// Description はオーバーレイに出す課題本文（事前格納）。Stale は取込対象外残留の警告フラグ。
-	// Origin は由来（assigned / category / stale）。
-	Description string
-	Stale       bool
-	Origin      string
+	// DescriptionHTML は詳細バーに出す課題本文（markdown → 安全な HTML）。
+	// Stale は取込対象外残留の警告フラグ。Origin は由来（assigned / category / stale）。
+	DescriptionHTML template.HTML
+	Stale           bool
+	Origin          string
 }
 
 type recordView struct {
@@ -684,7 +684,7 @@ func (h *Handler) toMyIssueView(r backlog.MyIssueRecord, now time.Time) myIssueV
 		LatestSinceJST:        r.UpdatedAtJST,
 		CommentHistoryTitle:   r.CommentHistoryTitle,
 		CommentHistory:        template.HTML(h.renderHistory(r.CommentHistory)),
-		Description:           r.Description,
+		DescriptionHTML:       renderMarkdown(r.Description),
 		Stale:                 r.Stale,
 		Origin:                r.Origin,
 	}

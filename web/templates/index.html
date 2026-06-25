@@ -248,36 +248,40 @@
         {{if eq .MyBacklogTotal 0}}
             <p class="empty">対象の課題はありません</p>
         {{else}}
-            <p class="backlog-hint">手を付ける順に上からドラッグして並べ替え。行クリックで概要とコメントを表示。並びはこの端末にのみ保存され、Backlog には書き戻しません。</p>
-            <ul class="backlog-list" id="backlog-list"{{if .CanReorder}} data-can-reorder="1"{{end}}>
-                {{range .MyBacklogTop}}
-                    {{template "backlog-card" .}}
-                {{end}}
-                {{if .MyBacklogRest}}
-                    <li class="backlog-divider" id="backlog-divider"><span>未設定（直近に割り当て / 並べ替え対象）</span></li>
-                    {{range .MyBacklogRest}}
-                        {{template "backlog-card" .}}
-                    {{end}}
-                {{end}}
-            </ul>
-            <div class="backlog-save-state" id="backlog-save-state" aria-live="polite"></div>
-
-            <div class="backlog-overlay-backdrop" id="backlog-overlay-backdrop" hidden></div>
-            <aside class="backlog-overlay" id="backlog-overlay" hidden aria-label="チケット詳細">
-                <header class="backlog-overlay-head">
-                    <a class="key" id="backlog-overlay-key" href="#" target="_blank" rel="noopener"></a>
-                    <button type="button" class="backlog-overlay-close" id="backlog-overlay-close" title="閉じる (Esc)">✕</button>
-                </header>
-                <h3 class="backlog-overlay-summary" id="backlog-overlay-summary"></h3>
-                <section class="backlog-overlay-section">
-                    <h4>概要</h4>
-                    <div class="backlog-overlay-desc" id="backlog-overlay-desc"></div>
-                </section>
-                <section class="backlog-overlay-section">
-                    <h4 id="backlog-overlay-history-title">コメント</h4>
-                    <div class="backlog-overlay-history" id="backlog-overlay-history"></div>
-                </section>
-            </aside>
+            <p class="backlog-hint">手を付ける順に上からドラッグして並べ替え。行クリックで右に概要とコメントを表示。並びはこの端末にのみ保存され、Backlog には書き戻しません。</p>
+            <div class="backlog-layout">
+                <div class="backlog-list-col">
+                    <ul class="backlog-list" id="backlog-list"{{if .CanReorder}} data-can-reorder="1"{{end}}>
+                        {{range .MyBacklogTop}}
+                            {{template "backlog-card" .}}
+                        {{end}}
+                        {{if .MyBacklogRest}}
+                            <li class="backlog-divider" id="backlog-divider"><span>未設定（直近に割り当て / 並べ替え対象）</span></li>
+                            {{range .MyBacklogRest}}
+                                {{template "backlog-card" .}}
+                            {{end}}
+                        {{end}}
+                    </ul>
+                    <div class="backlog-save-state" id="backlog-save-state" aria-live="polite"></div>
+                </div>
+                <aside class="backlog-detail" id="backlog-detail" aria-label="チケット詳細">
+                    <div class="backlog-detail-empty" id="backlog-detail-empty">← 行を選択すると概要とコメントを表示します</div>
+                    <div class="backlog-detail-content" id="backlog-detail-content" hidden>
+                        <header class="backlog-detail-head">
+                            <a class="key" id="backlog-detail-key" href="#" target="_blank" rel="noopener"></a>
+                        </header>
+                        <h3 class="backlog-detail-summary" id="backlog-detail-summary"></h3>
+                        <section class="backlog-detail-section">
+                            <h4>概要</h4>
+                            <div class="md backlog-detail-desc" id="backlog-detail-desc"></div>
+                        </section>
+                        <section class="backlog-detail-section">
+                            <h4 id="backlog-detail-history-title">コメント</h4>
+                            <div class="backlog-detail-history" id="backlog-detail-history"></div>
+                        </section>
+                    </div>
+                </aside>
+            </div>
         {{end}}
     </div>
 
@@ -853,51 +857,45 @@
             });
         }
 
-        // --- My Backlog: 行クリックで詳細オーバーレイ（snapshot 事前格納データを表示） ---
-        var overlay = document.getElementById('backlog-overlay');
-        if (backlogList && overlay) {
-            var backdrop = document.getElementById('backlog-overlay-backdrop');
-            var ovKey = document.getElementById('backlog-overlay-key');
-            var ovSummary = document.getElementById('backlog-overlay-summary');
-            var ovDesc = document.getElementById('backlog-overlay-desc');
-            var ovHist = document.getElementById('backlog-overlay-history');
-            var ovHistTitle = document.getElementById('backlog-overlay-history-title');
+        // --- My Backlog: 行クリックで右の常設バーに詳細を表示（snapshot 事前格納データ） ---
+        var detail = document.getElementById('backlog-detail');
+        if (backlogList && detail) {
+            var dEmpty = document.getElementById('backlog-detail-empty');
+            var dContent = document.getElementById('backlog-detail-content');
+            var dKey = document.getElementById('backlog-detail-key');
+            var dSummary = document.getElementById('backlog-detail-summary');
+            var dDesc = document.getElementById('backlog-detail-desc');
+            var dHist = document.getElementById('backlog-detail-history');
+            var dHistTitle = document.getElementById('backlog-detail-history-title');
 
-            function openOverlay(card) {
-                ovKey.textContent = card.dataset.key || '';
-                ovKey.href = card.dataset.url || '#';
-                ovSummary.textContent = card.dataset.summary || '';
-                ovHistTitle.textContent = card.dataset.historyTitle || 'コメント';
-                ovDesc.textContent = '';
-                ovHist.innerHTML = '';
+            function selectCard(card) {
+                backlogList.querySelectorAll('.backlog-card.selected').forEach(function(c) {
+                    c.classList.remove('selected');
+                });
+                card.classList.add('selected');
+                dKey.textContent = card.dataset.key || '';
+                dKey.href = card.dataset.url || '#';
+                dSummary.textContent = card.dataset.summary || '';
+                dHistTitle.textContent = card.dataset.historyTitle || 'コメント';
+                dDesc.innerHTML = '';
+                dHist.innerHTML = '';
                 var tpl = card.querySelector('template.backlog-detail-data');
                 if (tpl) {
                     var frag = tpl.content.cloneNode(true);
-                    var desc = frag.querySelector('.backlog-detail-desc');
-                    var hist = frag.querySelector('.backlog-detail-history');
-                    if (desc) ovDesc.textContent = desc.textContent; // 概要は素テキスト（改行保持）
-                    if (hist) ovHist.innerHTML = hist.innerHTML;      // コメントは描画済み HTML
+                    var desc = frag.querySelector('.bl-data-desc');
+                    var hist = frag.querySelector('.bl-data-history');
+                    if (desc) dDesc.innerHTML = desc.innerHTML; // 概要は markdown→HTML 済み
+                    if (hist) dHist.innerHTML = hist.innerHTML; // コメントも描画済み HTML
                 }
-                overlay.hidden = false;
-                backdrop.hidden = false;
-                document.body.classList.add('backlog-overlay-open');
-            }
-            function closeOverlay() {
-                overlay.hidden = true;
-                backdrop.hidden = true;
-                document.body.classList.remove('backlog-overlay-open');
+                dEmpty.hidden = true;
+                dContent.hidden = false;
             }
 
             backlogList.addEventListener('click', function(e) {
                 if (e.target.closest('.backlog-key')) return;    // 課題キーは Backlog を別タブで開く
                 if (e.target.closest('.backlog-handle')) return; // ハンドルはドラッグ用
                 var card = e.target.closest('.backlog-card');
-                if (card) openOverlay(card);
-            });
-            document.getElementById('backlog-overlay-close').addEventListener('click', closeOverlay);
-            backdrop.addEventListener('click', closeOverlay);
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape' && !overlay.hidden) closeOverlay();
+                if (card) selectCard(card);
             });
         }
     })();
@@ -925,8 +923,8 @@
     {{if .IssueStatus}}<span class="issue-status" data-status="{{.IssueStatus}}">{{.IssueStatus}}</span>{{else}}<span class="backlog-empty-cell"></span>{{end}}
     {{if .DueDate}}<span class="backlog-due{{if .Overdue}} overdue{{end}}" title="期限">{{.DueDate}}{{if .Overdue}} ⚠{{end}}</span>{{else}}<span class="backlog-empty-cell"></span>{{end}}
     <template class="backlog-detail-data">
-        <div class="backlog-detail-desc">{{if .Description}}{{.Description}}{{else}}（概要なし）{{end}}</div>
-        <div class="backlog-detail-history">{{if .CommentHistory}}{{.CommentHistory}}{{else}}<p class="empty">コメントはありません</p>{{end}}</div>
+        <div class="bl-data-desc">{{if .DescriptionHTML}}{{.DescriptionHTML}}{{else}}<p class="md-empty">（概要なし）</p>{{end}}</div>
+        <div class="bl-data-history">{{if .CommentHistory}}{{.CommentHistory}}{{else}}<p class="empty">コメントはありません</p>{{end}}</div>
     </template>
 </li>
 {{end}}
