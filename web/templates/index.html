@@ -283,14 +283,13 @@
                     <div class="backlog-detail-content" id="backlog-detail-content" hidden>
                         <header class="backlog-detail-head">
                             <a class="key" id="backlog-detail-key" href="#" target="_blank" rel="noopener"></a>
+                            <span class="backlog-detail-summary" id="backlog-detail-summary"></span>
                         </header>
-                        <h3 class="backlog-detail-summary" id="backlog-detail-summary"></h3>
                         <section class="backlog-detail-section">
-                            <h4>概要</h4>
                             <div class="md backlog-detail-desc" id="backlog-detail-desc"></div>
                         </section>
                         <section class="backlog-detail-section">
-                            <h4 id="backlog-detail-history-title">コメント</h4>
+                            <h4 class="backlog-detail-history-head" id="backlog-detail-history-title"></h4>
                             <div class="backlog-detail-history" id="backlog-detail-history"></div>
                         </section>
                     </div>
@@ -882,6 +881,25 @@
             var dHist = document.getElementById('backlog-detail-history');
             var dHistTitle = document.getElementById('backlog-detail-history-title');
 
+            // 履歴タイトルを「コメント履歴」(目立つ) と「(最新N件)」(控えめ) に分割表示する。
+            function setHistTitle(t) {
+                t = t || 'コメント';
+                dHistTitle.textContent = '';
+                var main = document.createElement('span');
+                main.className = 'hist-main';
+                var sub = document.createElement('span');
+                sub.className = 'hist-sub';
+                var pi = t.indexOf('(');
+                if (pi >= 0) {
+                    main.textContent = t.slice(0, pi).trim();
+                    sub.textContent = t.slice(pi).trim();
+                } else {
+                    main.textContent = t;
+                }
+                dHistTitle.appendChild(main);
+                if (sub.textContent) dHistTitle.appendChild(sub);
+            }
+
             function selectCard(card) {
                 backlogList.querySelectorAll('.backlog-card.selected').forEach(function(c) {
                     c.classList.remove('selected');
@@ -890,7 +908,8 @@
                 dKey.textContent = card.dataset.key || '';
                 dKey.href = card.dataset.url || '#';
                 dSummary.textContent = card.dataset.summary || '';
-                dHistTitle.textContent = card.dataset.historyTitle || 'コメント';
+                dSummary.title = card.dataset.summary || '';
+                setHistTitle(card.dataset.historyTitle || 'コメント');
                 dDesc.innerHTML = '';
                 dHist.innerHTML = '';
                 var tpl = card.querySelector('template.backlog-detail-data');

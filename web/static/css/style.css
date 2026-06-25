@@ -1276,20 +1276,50 @@ main {
     font-size: 13px;
 }
 
+/* no(課題キー) + タイトルを 1 行に */
+.backlog-detail-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+}
+
 .backlog-detail-head .key {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     color: var(--link);
     text-decoration: none;
     font-weight: 600;
+    flex-shrink: 0;
 }
 
 .backlog-detail-head .key:hover { text-decoration: underline; }
 
 .backlog-detail-summary {
+    flex: 1;
+    min-width: 0;
     margin: 0;
-    font-size: 15px;
-    line-height: 1.4;
-    word-break: break-word;
+    font-size: 14px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* コメント履歴の見出し: 「コメント履歴」を目立たせ、「(最新N件)」は控えめ */
+.backlog-detail-history-head {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+.backlog-detail-history-head .hist-main {
+    color: var(--fg);
+    font-size: 14px;
+    font-weight: 700;
+}
+.backlog-detail-history-head .hist-sub {
+    color: var(--fg-muted);
+    font-size: 11px;
+    font-weight: 400;
 }
 
 .backlog-detail-section h4 {
