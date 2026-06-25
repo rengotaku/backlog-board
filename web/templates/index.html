@@ -284,6 +284,7 @@
                         <header class="backlog-detail-head">
                             <a class="key" id="backlog-detail-key" href="#" target="_blank" rel="noopener"></a>
                             <span class="backlog-detail-summary" id="backlog-detail-summary"></span>
+                            <button type="button" class="backlog-detail-close" id="backlog-detail-close" title="閉じる" aria-label="閉じる">✕</button>
                         </header>
                         <section class="backlog-detail-section">
                             <div class="md backlog-detail-desc" id="backlog-detail-desc"></div>
@@ -900,11 +901,14 @@
                 if (sub.textContent) dHistTitle.appendChild(sub);
             }
 
-            function selectCard(card) {
-                backlogList.querySelectorAll('.backlog-card.selected').forEach(function(c) {
-                    c.classList.remove('selected');
-                });
-                card.classList.add('selected');
+            var dClose = document.getElementById('backlog-detail-close');
+            var pinned = null; // クリックで固定された行
+            var shown = null;  // 現在パネルに描画中の行
+
+            // パネルに card の内容を描画して開く（pinned は変更しない）。
+            function renderDetail(card) {
+                if (card === shown) return;
+                shown = card;
                 dKey.textContent = card.dataset.key || '';
                 dKey.href = card.dataset.url || '#';
                 dSummary.textContent = card.dataset.summary || '';
@@ -920,16 +924,56 @@
                     if (desc) dDesc.innerHTML = desc.innerHTML; // 概要は markdown→HTML 済み
                     if (hist) dHist.innerHTML = hist.innerHTML; // コメントも描画済み HTML
                 }
-                dEmpty.hidden = true;
+                if (dEmpty) dEmpty.hidden = true;
                 dContent.hidden = false;
+                detail.classList.add('open');
             }
 
+            // ホバーを外したとき: 固定行があればそれに戻す。無ければパネルを閉じる。
+            function revertToPinned() {
+                if (pinned) {
+                    shown = null;
+                    renderDetail(pinned);
+                } else {
+                    shown = null;
+                    detail.classList.remove('open');
+                }
+            }
+
+            function pin(card) {
+                pinned = card;
+                backlogList.querySelectorAll('.backlog-card.selected').forEach(function(c) {
+                    c.classList.remove('selected');
+                });
+                card.classList.add('selected');
+                shown = null;
+                renderDetail(card);
+            }
+
+            function closePanel() {
+                pinned = null;
+                shown = null;
+                backlogList.querySelectorAll('.backlog-card.selected').forEach(function(c) {
+                    c.classList.remove('selected');
+                });
+                detail.classList.remove('open');
+            }
+
+            // クリックで固定
             backlogList.addEventListener('click', function(e) {
                 if (e.target.closest('.backlog-key')) return;    // 課題キーは Backlog を別タブで開く
                 if (e.target.closest('.backlog-handle')) return; // ハンドルはドラッグ用
                 var card = e.target.closest('.backlog-card');
-                if (card) selectCard(card);
+                if (card) pin(card);
             });
+            // ホバーでプレビュー（固定は変えない）
+            backlogList.addEventListener('mouseover', function(e) {
+                var card = e.target.closest('.backlog-card');
+                if (card) renderDetail(card);
+            });
+            // 一覧から離れたら固定行へ戻す
+            backlogList.addEventListener('mouseleave', revertToPinned);
+            if (dClose) dClose.addEventListener('click', closePanel);
         }
 
         // --- My Backlog: 対象カテゴリの編集（複数・UI から変更し再取得） ---

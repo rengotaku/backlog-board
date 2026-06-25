@@ -1070,6 +1070,7 @@ main {
     font-variant-numeric: tabular-nums;
     font-weight: 600;
     color: var(--fg-muted);
+    padding-right: 8px;
 }
 
 .backlog-key {
@@ -1223,26 +1224,17 @@ main {
 .backlog-cats-state { color: var(--fg-muted); }
 .backlog-cats-state.failed { color: var(--status-open); }
 
-/* My Backlog: リスト+詳細だけ main(960px) の枠を抜けてビューポート全幅を使う。
-   中央=チケット一覧（読みやすい幅で中央寄せ）、右の空きスペース=詳細バー。
-   カテゴリ編集バー・ヒントは通常の 960px 列のまま。 */
+/* My Backlog: チケット一覧は中央寄せ。詳細は右に浮かぶオーバーレイ風パネル
+   （背面の暗幕・影なし、枠線のみ）。リスト上に重なって表示される。 */
 .backlog-layout {
-    width: 100vw;
-    margin-left: calc(50% - 50vw);
-    margin-right: calc(50% - 50vw);
-    box-sizing: border-box;
-    padding: 0 24px;
-    display: flex;
-    gap: 24px;
-    align-items: flex-start;
+    display: block;
 }
 
 .backlog-list-col {
-    flex: 1 1 auto;
     min-width: 0;
 }
 
-/* リストは読みやすい幅に抑え、左カラム内で中央寄せ */
+/* リストは読みやすい幅に抑え、ページ中央に寄せる */
 .backlog-list-col .backlog-list,
 .backlog-list-col .backlog-save-state {
     max-width: 860px;
@@ -1256,20 +1248,23 @@ main {
 }
 
 .backlog-detail {
-    flex: 0 0 520px;
-    width: 520px;
-    position: sticky;
-    top: 12px;
-    max-height: calc(100vh - 90px);
+    position: fixed;
+    top: 64px;
+    right: 16px;
+    width: min(460px, 42vw);
+    max-height: calc(100vh - 84px);
     overflow-y: auto;
-    background: var(--bg-soft);
+    z-index: 30;
+    background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 14px 16px;
-    display: flex;
+    display: none; /* JS が .open で表示 */
     flex-direction: column;
     gap: 12px;
 }
+
+.backlog-detail.open { display: flex; }
 
 .backlog-detail-empty {
     color: var(--fg-muted);
@@ -1293,6 +1288,20 @@ main {
 }
 
 .backlog-detail-head .key:hover { text-decoration: underline; }
+
+.backlog-detail-close {
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--fg-muted);
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 1px 7px;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.backlog-detail-close:hover { color: var(--fg); }
 
 .backlog-detail-summary {
     flex: 1;
@@ -1387,14 +1396,16 @@ main {
 
 /* 横幅が狭い時は詳細バーをリストの下に回す */
 @media (max-width: 860px) {
-    .backlog-layout { flex-direction: column; }
     .backlog-list-col .backlog-list,
     .backlog-list-col .backlog-save-state { max-width: none; }
+    /* 狭幅では下部シート風に全幅で重ねる */
     .backlog-detail {
-        flex: none;
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: 0;
         width: auto;
-        align-self: stretch;
-        position: static;
-        max-height: none;
+        max-height: 70vh;
+        border-radius: 8px 8px 0 0;
     }
 }
