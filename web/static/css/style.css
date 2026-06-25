@@ -1131,3 +1131,90 @@ main {
 
 .backlog-save-state.saved { color: var(--status-resolved, #1a7f37); }
 .backlog-save-state.failed { color: var(--status-open, #cf222e); }
+
+/* stale: カテゴリ/担当から外れたが完了でないため警告付きで残す行 */
+.backlog-card.stale {
+    border-style: dashed;
+    border-color: var(--status-open);
+}
+
+.backlog-warn {
+    color: var(--status-open);
+    font-weight: 600;
+}
+
+/* クリックで開く詳細オーバーレイ（右からスライドイン） */
+.backlog-overlay-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 40;
+}
+
+.backlog-overlay {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: min(480px, 92vw);
+    height: 100vh;
+    background: var(--bg);
+    border-left: 1px solid var(--border);
+    box-shadow: -4px 0 16px rgba(0, 0, 0, 0.2);
+    z-index: 41;
+    padding: 16px 18px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.backlog-overlay-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.backlog-overlay-head .key {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--link);
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.backlog-overlay-head .key:hover { text-decoration: underline; }
+
+.backlog-overlay-close {
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--fg);
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 2px 8px;
+    font-size: 14px;
+}
+
+.backlog-overlay-summary {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.backlog-overlay-section h4 {
+    margin: 0 0 6px;
+    font-size: 12px;
+    color: var(--fg-muted);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 4px;
+}
+
+.backlog-overlay-desc {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--fg);
+    max-height: 30vh;
+    overflow-y: auto;
+}

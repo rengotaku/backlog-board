@@ -24,12 +24,17 @@ import (
 // Options は handler が受け持つセキュリティ系の許可リストをまとめる。
 // AllowedHosts: Host ヘッダの allowlist (DNS rebinding 対策)。例: "127.0.0.1:8082", "localhost:8082"。
 // AllowedOrigins: POST 等の state-changing リクエストで許可する Origin/Referer プレフィックス。
-//   例: "http://127.0.0.1:8082", "http://localhost:8082"。
+//
+//	例: "http://127.0.0.1:8082", "http://localhost:8082"。
+//
 // LinkAllowPrefixes: コメント本文中の [text](url) リンクを <a href> として有効化する URL prefix。
-//   nil または空 (デフォルト) では http/https/mailse 全許可。非空にすると prefix allowlist で厳格化する。
+//
+//	nil または空 (デフォルト) では http/https/mailse 全許可。非空にすると prefix allowlist で厳格化する。
+//
 // PostCommentStar: スター付与 callback。nil の場合は /api/star エンドポイントを公開しない。
 // Priorities: 個人 backlog（手を付ける順番）の永続化ストア。nil の場合は
-//   /api/priorities エンドポイントを公開せず、My Backlog タブは保存順なしで描画する。
+//
+//	/api/priorities エンドポイントを公開せず、My Backlog タブは保存順なしで描画する。
 type Options struct {
 	AllowedHosts      []string
 	AllowedOrigins    []string
@@ -294,12 +299,13 @@ type viewData struct {
 	// MyBacklogRest は優先順未設定（直近に割り当てられた等）の担当課題で、
 	// テンプレートでは区切り線の下に出す。CanReorder が true のときのみ
 	// ドラッグ並べ替え + 永続化が有効。
-	MyBacklogTop  []myIssueView
-	MyBacklogRest []myIssueView
-	CanReorder    bool
-	MyIssueTotal  int
-	CanRefresh    bool
-	APICallCount  int
+	MyBacklogTop   []myIssueView
+	MyBacklogRest  []myIssueView
+	MyBacklogTotal int
+	CanReorder     bool
+	MyIssueTotal   int
+	CanRefresh     bool
+	APICallCount   int
 }
 
 // myIssueKanbanColumn は kanban モード用の 1 ステータス列。
@@ -330,11 +336,11 @@ type mentionBucket struct {
 }
 
 type myIssueGroup struct {
-	HasParent      bool
-	ParentKey      string
-	ParentSummary  string
-	ParentURL      string
-	Issues         []myIssueView
+	HasParent     bool
+	ParentKey     string
+	ParentSummary string
+	ParentURL     string
+	Issues        []myIssueView
 }
 
 type myIssueBucket struct {
@@ -363,6 +369,11 @@ type myIssueView struct {
 	LatestSinceJST      string
 	CommentHistoryTitle string
 	CommentHistory      template.HTML
+	// Description はオーバーレイに出す課題本文（事前格納）。Stale は取込対象外残留の警告フラグ。
+	// Origin は由来（assigned / category / stale）。
+	Description string
+	Stale       bool
+	Origin      string
 }
 
 type recordView struct {
@@ -375,22 +386,22 @@ type recordView struct {
 	Status         string
 	// CCReason は Status=="CC" のときの発火由来（issue_created / cc_mention）。
 	// テンプレートで小バッジを出し分けるために使う。非 CC では空。
-	CCReason       string
-	Sender         string
-	Assignee       string
-	Creator        string
-	ContentExcerpt template.HTML
-	IssueURL       string
-	CommentURL     string
-	CommentID      int
+	CCReason            string
+	Sender              string
+	Assignee            string
+	Creator             string
+	ContentExcerpt      template.HTML
+	IssueURL            string
+	CommentURL          string
+	CommentID           int
 	CommentHistoryTitle string
 	CommentHistory      template.HTML
-	IsAssignee     bool
-	IsCreator      bool
-	Starred        bool
-	Replied        bool
-	AtMentioned    bool
-	SilentClose    bool
+	IsAssignee          bool
+	IsCreator           bool
+	Starred             bool
+	Replied             bool
+	AtMentioned         bool
+	SilentClose         bool
 	// IsEvent は本文なし changeLog 通知の場合に true。EventFieldsLabel は
 	// テンプレートに表示する和訳済みラベル（例: "担当者変更, ステータス変更"）。
 	IsEvent          bool
@@ -439,6 +450,7 @@ func (h *Handler) handleIndex(c *gin.Context) {
 		}
 	}
 	data.MyBacklogTop, data.MyBacklogRest = h.buildMyIssueBacklog(snap, order, now)
+	data.MyBacklogTotal = len(data.MyBacklogTop) + len(data.MyBacklogRest)
 	data.MyIssueTotal = len(snap.MyIssues)
 	data.APICallCount = snap.APICallCount
 
@@ -519,28 +531,28 @@ func (h *Handler) toRecordView(snap *backlog.Snapshot, now time.Time, r backlog.
 // 一覧は Backlog API ドキュメント (https://developer.nulab.com/docs/backlog/api/2/get-comment-list/) より抜粋。
 // 未知のフィールドはそのまま文字列を返す（新規追加 field の検出にもなる）。
 var eventFieldLabels = map[string]string{
-	"assigner":         "担当者変更",
-	"status":           "ステータス変更",
-	"resolution":       "完了理由変更",
-	"summary":          "件名変更",
-	"description":      "詳細変更",
-	"priority":         "優先度変更",
-	"limitDate":        "期限日変更",
-	"startDate":        "開始日変更",
-	"estimatedHours":   "予定時間変更",
-	"actualHours":      "実績時間変更",
-	"issueType":        "種別変更",
-	"category":         "カテゴリー変更",
-	"version":          "発生バージョン変更",
-	"milestone":        "マイルストーン変更",
-	"component":        "コンポーネント変更",
-	"parentIssue":      "親課題変更",
-	"attachment":       "添付ファイル変更",
-	"notification":     "お知らせ変更",
-	"commit":           "コミット連携",
-	"pullRequest":      "プルリクエスト連携",
+	"assigner":           "担当者変更",
+	"status":             "ステータス変更",
+	"resolution":         "完了理由変更",
+	"summary":            "件名変更",
+	"description":        "詳細変更",
+	"priority":           "優先度変更",
+	"limitDate":          "期限日変更",
+	"startDate":          "開始日変更",
+	"estimatedHours":     "予定時間変更",
+	"actualHours":        "実績時間変更",
+	"issueType":          "種別変更",
+	"category":           "カテゴリー変更",
+	"version":            "発生バージョン変更",
+	"milestone":          "マイルストーン変更",
+	"component":          "コンポーネント変更",
+	"parentIssue":        "親課題変更",
+	"attachment":         "添付ファイル変更",
+	"notification":       "お知らせ変更",
+	"commit":             "コミット連携",
+	"pullRequest":        "プルリクエスト連携",
 	"pullRequestComment": "プルリク コメント連携",
-	"externalFile":     "外部ファイル変更",
+	"externalFile":       "外部ファイル変更",
 }
 
 func eventFieldsLabel(fields []string) string {
@@ -672,6 +684,9 @@ func (h *Handler) toMyIssueView(r backlog.MyIssueRecord, now time.Time) myIssueV
 		LatestSinceJST:        r.UpdatedAtJST,
 		CommentHistoryTitle:   r.CommentHistoryTitle,
 		CommentHistory:        template.HTML(h.renderHistory(r.CommentHistory)),
+		Description:           r.Description,
+		Stale:                 r.Stale,
+		Origin:                r.Origin,
 	}
 }
 
@@ -767,14 +782,26 @@ func (h *Handler) buildMyIssueKanban(snap *backlog.Snapshot, now time.Time) []my
 // My Backlog: 保存済みの優先順 (order = issue_id の並び) に従って担当課題を並べ、
 // 「優先順設定済み (top)」と「未設定 (rest)」の 2 グループに分けて返す。
 //   - top:  order に載っている課題を order の順で。order にあるが現在の担当課題に
-//           無い id（完了して担当外れた等）は自然に脱落する。
+//     無い id（完了して担当外れた等）は自然に脱落する。
 //   - rest: 担当課題のうち order に無いもの。直近に割り当てられた課題等。
-//           UpdatedAt 降順で並べ、区切り線の下に出す。
+//     UpdatedAt 降順で並べ、区切り線の下に出す。
+//
 // ドラッグで rest の課題を top に引き上げ、保存すると次回から top に昇格する。
 func (h *Handler) buildMyIssueBacklog(snap *backlog.Snapshot, order []int, now time.Time) (top, rest []myIssueView) {
-	byID := make(map[int]backlog.MyIssueRecord, len(snap.MyIssues))
-	for _, r := range snap.MyIssues {
+	// My Backlog の対象 = 担当課題 ∪ カテゴリ取込 ∪ stale 残留。先勝ちで dedup。
+	sources := make([]backlog.MyIssueRecord, 0,
+		len(snap.MyIssues)+len(snap.BacklogExtra)+len(snap.BacklogStale))
+	sources = append(sources, snap.MyIssues...)
+	sources = append(sources, snap.BacklogExtra...)
+	sources = append(sources, snap.BacklogStale...)
+	byID := make(map[int]backlog.MyIssueRecord, len(sources))
+	allRecs := make([]backlog.MyIssueRecord, 0, len(sources))
+	for _, r := range sources {
+		if _, ok := byID[r.IssueID]; ok {
+			continue
+		}
 		byID[r.IssueID] = r
+		allRecs = append(allRecs, r)
 	}
 
 	inOrder := make(map[int]bool, len(order))
@@ -788,8 +815,8 @@ func (h *Handler) buildMyIssueBacklog(snap *backlog.Snapshot, order []int, now t
 		top = append(top, h.toMyIssueView(r, now))
 	}
 
-	restRecs := make([]backlog.MyIssueRecord, 0, len(snap.MyIssues))
-	for _, r := range snap.MyIssues {
+	restRecs := make([]backlog.MyIssueRecord, 0, len(allRecs))
+	for _, r := range allRecs {
 		if !inOrder[r.IssueID] {
 			restRecs = append(restRecs, r)
 		}

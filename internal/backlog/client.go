@@ -124,10 +124,11 @@ type IssueType struct {
 }
 
 type Issue struct {
-	ID            int    `json:"id"`
-	IssueKey      string `json:"issueKey"`
-	Summary       string `json:"summary"`
-	Status        *struct {
+	ID          int    `json:"id"`
+	IssueKey    string `json:"issueKey"`
+	Summary     string `json:"summary"`
+	Description string `json:"description"`
+	Status      *struct {
 		Name string `json:"name"`
 	} `json:"status"`
 	Priority      *Priority  `json:"priority"`

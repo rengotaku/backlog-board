@@ -69,10 +69,19 @@ func run() error {
 			if err != nil {
 				prev = nil
 			}
+			// priorities.json を読み、stale 判定（取込対象外になった課題の現況確認）に渡す。
+			var priorityIDs []int
+			if o, lerr := priorities.Load(); lerr != nil {
+				slog.Warn("load priorities for fetch failed", "error", lerr)
+			} else {
+				priorityIDs = o
+			}
 			snap, err := backlog.Fetch(blClient, backlog.FetchOptions{
 				Count:       100,
 				IncludeRead: true,
 				Pages:       cfg.NotificationPages,
+				CategoryID:  cfg.CategoryID,
+				PriorityIDs: priorityIDs,
 			}, prev)
 			if err != nil {
 				return err

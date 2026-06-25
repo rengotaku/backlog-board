@@ -27,6 +27,9 @@ type Config struct {
 	// 長期休暇明け等で 100 件を超えるメンションが溜まっていた場合の取りこぼし防止用。
 	// デフォルト 3 = 300 件まで遡る。1〜10 にクランプ。
 	NotificationPages int `toml:"notification_pages"`
+	// CategoryID > 0 のとき、その Backlog カテゴリの課題（完了除く）を My Backlog タブに
+	// 担当者問わず取り込む。0（未指定）なら取り込まない。
+	CategoryID int `toml:"category_id"`
 }
 
 const (

@@ -36,3 +36,9 @@ domain = "yourspace.backlog.com"
 # それ以外で許可したい外部 URL を列挙する。空の場合は外部 URL は無効化される (href="#")。
 # 例: GitHub の自社 org の特定リポジトリのみ許可:
 # allowed_link_prefixes = ["https://github.com/<org>/<repo>/"]
+
+# 任意: My Backlog タブに取り込む Backlog カテゴリ ID (デフォルト 0 = 取り込まない)。
+# 指定すると、そのカテゴリが付いた課題 (完了除く) を担当者問わず My Backlog の対象に加える。
+# カテゴリ ID は Backlog のボード URL の category= パラメータで確認できる。
+# 例: https://<domain>/board/DSC?category=482810 → 482810
+# category_id = 482810

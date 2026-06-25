@@ -60,6 +60,46 @@ func TestBuildMyIssueBacklog(t *testing.T) {
 	})
 }
 
+func TestBuildMyIssueBacklog_MergesExtraAndStale(t *testing.T) {
+	now := time.Now()
+	snap := &backlog.Snapshot{
+		MyIssues: []backlog.MyIssueRecord{
+			{IssueID: 1, IssueKey: "X-1", UpdatedAt: "2026-06-25T01:00:00Z", Origin: "assigned"},
+		},
+		BacklogExtra: []backlog.MyIssueRecord{
+			{IssueID: 2, IssueKey: "X-2", UpdatedAt: "2026-06-25T05:00:00Z", Origin: "category"},
+			// 1 は担当課題と重複 → dedup で落ちる
+			{IssueID: 1, IssueKey: "X-1", UpdatedAt: "2026-06-25T01:00:00Z", Origin: "category"},
+		},
+		BacklogStale: []backlog.MyIssueRecord{
+			{IssueID: 3, IssueKey: "X-3", UpdatedAt: "2026-06-25T02:00:00Z", Origin: "stale", Stale: true},
+		},
+	}
+	h := &Handler{}
+
+	t.Run("stale id in order shows in top, flagged", func(t *testing.T) {
+		top, rest := h.buildMyIssueBacklog(snap, []int{3, 1}, now)
+		if got, want := keysOf(top), []string{"X-3", "X-1"}; !equalStrings(got, want) {
+			t.Fatalf("top = %v, want %v", got, want)
+		}
+		if !top[0].Stale {
+			t.Errorf("X-3 should be Stale")
+		}
+		// category X-2 は order に無い → rest
+		if got, want := keysOf(rest), []string{"X-2"}; !equalStrings(got, want) {
+			t.Errorf("rest = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("no order: all three sources land in rest by updated desc, deduped", func(t *testing.T) {
+		_, rest := h.buildMyIssueBacklog(snap, nil, now)
+		// updated desc: X-2(05) > X-3(02) > X-1(01)
+		if got, want := keysOf(rest), []string{"X-2", "X-3", "X-1"}; !equalStrings(got, want) {
+			t.Errorf("rest = %v, want %v", got, want)
+		}
+	})
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

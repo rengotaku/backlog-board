@@ -55,7 +55,7 @@ type Record struct {
 	AtMentioned    bool   `json:"at_mentioned"`
 	// SilentClose は「完了」遷移の本文なし changeLog 通知を自動で確認済に格上げしたケース。
 	// 表示側で「対応済（自動）」と通常の対応済（★/返信）を見分けるために使う。
-	SilentClose    bool   `json:"silent_close"`
+	SilentClose bool `json:"silent_close"`
 	// IsEvent は本文が空で changeLog のみのコメント（担当者変更・ステータス変更等）かどうか。
 	// UI で「本文なし（担当者変更）」のようなプレースホルダ表示を出すために使う。
 	IsEvent     bool     `json:"is_event,omitempty"`
@@ -91,6 +91,13 @@ type MyIssueRecord struct {
 	LastUserActivityAtJST string `json:"last_user_activity_at_jst,omitempty"`
 	CommentHistoryTitle   string `json:"comment_history_title,omitempty"`
 	CommentHistory        string `json:"comment_history,omitempty"`
+	// Description はオーバーレイ表示用に事前格納する課題の詳細（本文）。
+	Description string `json:"description,omitempty"`
+	// Origin は My Backlog での由来: "" / "assigned"（担当課題）/ "category"（カテゴリ取込）/ "stale"（対象外残留）。
+	Origin string `json:"origin,omitempty"`
+	// Stale は priorities に居るが現在の取込対象（担当∪カテゴリ）に無く、完了でもないため
+	// 警告付きで残している課題のとき true。
+	Stale bool `json:"stale,omitempty"`
 }
 
 // PassedIssueRecord は「自分が担当だったが、自分の操作で別の担当者に振り直したチケット」1件分。
@@ -119,7 +126,12 @@ type Snapshot struct {
 	MyIssues           []MyIssueRecord     `json:"my_issues"`
 	MyIssueStatusOrder []string            `json:"my_issue_status_order,omitempty"`
 	PassedIssues       []PassedIssueRecord `json:"passed_issues,omitempty"`
-	APICallCount       int                 `json:"api_call_count,omitempty"`
+	// BacklogExtra は特定カテゴリから取り込んだ課題（担当課題と重複しないもの、完了除く）。
+	// My Backlog の対象は MyIssues ∪ BacklogExtra ∪ BacklogStale。担当課題タブには出さない。
+	BacklogExtra []MyIssueRecord `json:"backlog_extra,omitempty"`
+	// BacklogStale は priorities に居るが現在の取込対象に無く、完了でもない課題（警告付き残留）。
+	BacklogStale []MyIssueRecord `json:"backlog_stale,omitempty"`
+	APICallCount int             `json:"api_call_count,omitempty"`
 	// CommentsCache は次回 Fetch 時にコメント取得をスキップするためのキャッシュ。
 	// キーは issue_id。次回の issue.updated が一致する課題はキャッシュを流用する。
 	// 未対応 mention の課題は常時取得するため、ここに乗っていても新規取得される。
@@ -405,6 +417,42 @@ type FetchOptions struct {
 	// Pages は Notifications を何ページ取得するか（1 ページ = Count 件）。
 	// 長期休暇明けの取りこぼし防止用。0 以下なら 1 として扱う。
 	Pages int
+	// CategoryID > 0 のとき、そのカテゴリの課題（完了除く）を My Backlog 用に取り込む。
+	CategoryID int
+	// PriorityIDs は priorities.json に保存済みの issue_id 群。取込対象に無いものを
+	// IssueByID で現況確認し、完了でなければ警告付きで残す（stale 判定）。
+	PriorityIDs []int
+}
+
+// basicIssueRecord は Issue から My Backlog 用の MyIssueRecord を組み立てる軽量版。
+// 親子グルーピング情報は付けない（My Backlog はフラットな一列のため不要）。
+func basicIssueRecord(domain string, issue Issue, today string) MyIssueRecord {
+	r := MyIssueRecord{
+		IssueID:      issue.ID,
+		IssueKey:     issue.IssueKey,
+		IssueSummary: issue.Summary,
+		Description:  issue.Description,
+		IssueURL:     fmt.Sprintf("https://%s/view/%s", domain, issue.IssueKey),
+		UpdatedAt:    issue.Updated,
+		UpdatedAtJST: formatJST(issue.Updated),
+	}
+	if issue.Status != nil {
+		r.IssueStatus = issue.Status.Name
+	}
+	if issue.Priority != nil {
+		r.Priority = issue.Priority.Name
+	}
+	if issue.IssueType != nil {
+		r.IssueType = issue.IssueType.Name
+	}
+	if issue.CreatedUser != nil {
+		r.Creator = issue.CreatedUser.Name
+	}
+	if issue.DueDate != "" {
+		r.DueDate = formatDate(issue.DueDate)
+		r.Overdue = r.DueDate < today
+	}
+	return r
 }
 
 func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
@@ -509,6 +557,64 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 
 	statusOrder := fetchMyIssueStatusOrder(c, myIssues)
 
+	// My Backlog 用の追加取込: 担当課題に Origin="assigned" を付け、
+	// カテゴリ課題（完了除く・担当と重複しない分）と stale 課題を集める。
+	today := time.Now().Format("2006-01-02")
+	for i := range myIssues {
+		myIssues[i].Origin = "assigned"
+	}
+	targetIDs := map[int]bool{}
+	for _, m := range myIssues {
+		targetIDs[m.IssueID] = true
+	}
+
+	var backlogExtra []MyIssueRecord
+	if opts.CategoryID > 0 {
+		params := url.Values{
+			"categoryId[]": {fmt.Sprintf("%d", opts.CategoryID)},
+			"count":        {"100"},
+			"sort":         {"updated"},
+			"order":        {"desc"},
+		}
+		catIssues, err := c.Issues(params)
+		if err != nil {
+			slog.Warn("category issues fetch failed", "category_id", opts.CategoryID, "error", err)
+		}
+		for _, iss := range catIssues {
+			if iss.Status != nil && iss.Status.Name == "完了" {
+				continue
+			}
+			if targetIDs[iss.ID] {
+				continue // 担当課題と重複
+			}
+			targetIDs[iss.ID] = true
+			r := basicIssueRecord(c.Domain, iss, today)
+			r.Origin = "category"
+			backlogExtra = append(backlogExtra, r)
+		}
+	}
+
+	// stale: priorities に居るが取込対象に無い課題。完了なら自動削除、それ以外は警告付きで残す。
+	var backlogStale []MyIssueRecord
+	for _, pid := range opts.PriorityIDs {
+		if pid <= 0 || targetIDs[pid] {
+			continue
+		}
+		targetIDs[pid] = true
+		iss, err := c.IssueByID(pid)
+		if err != nil {
+			slog.Warn("stale issue fetch failed", "issue_id", pid, "error", err)
+			continue
+		}
+		if iss.Status != nil && iss.Status.Name == "完了" {
+			continue // 完了は自動削除（snapshot に載せない → handler 側で order からも消える）
+		}
+		r := basicIssueRecord(c.Domain, *iss, today)
+		r.Origin = "stale"
+		r.Stale = true
+		backlogStale = append(backlogStale, r)
+	}
+
 	passedActs, err := c.UserActivities(me.ID, 100, 2, 3)
 	if err != nil {
 		slog.Warn("user activities (passed) fetch failed", "user", me.ID, "error", err)
@@ -547,6 +653,17 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 		}
 		if _, ok := currentIssueKey[p.IssueID]; !ok {
 			currentIssueKey[p.IssueID] = p.IssueKey
+		}
+	}
+	// カテゴリ取込・stale 課題もコメント履歴を付与する（オーバーレイ事前格納用）。
+	// updated_at をキャッシュキーに使うことで、変化が無ければ次回 IssueComments を省ける。
+	for _, m := range append(append([]MyIssueRecord{}, backlogExtra...), backlogStale...) {
+		commentNeeds[m.IssueID] = true
+		if _, ok := currentUpdated[m.IssueID]; !ok {
+			currentUpdated[m.IssueID] = m.UpdatedAt
+		}
+		if _, ok := currentIssueKey[m.IssueID]; !ok {
+			currentIssueKey[m.IssueID] = m.IssueKey
 		}
 	}
 
@@ -717,6 +834,20 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 		return passedIssues[i].PassedAt > passedIssues[j].PassedAt
 	})
 
+	// カテゴリ取込・stale 課題にもコメント履歴を付与する。
+	for i := range backlogExtra {
+		if comments, ok := commentsCache[backlogExtra[i].IssueID]; ok {
+			backlogExtra[i].CommentHistoryTitle, backlogExtra[i].CommentHistory =
+				formatCommentHistory(c.Domain, backlogExtra[i].IssueKey, comments, 0, me.ID)
+		}
+	}
+	for i := range backlogStale {
+		if comments, ok := commentsCache[backlogStale[i].IssueID]; ok {
+			backlogStale[i].CommentHistoryTitle, backlogStale[i].CommentHistory =
+				formatCommentHistory(c.Domain, backlogStale[i].IssueKey, comments, 0, me.ID)
+		}
+	}
+
 	// 次回 Fetch 用にコメントキャッシュを構築。各 issue_id の現在の updated_at と紐づけて保存する。
 	nextCommentsCache := make(map[int]CommentsCacheEntry, len(commentsCache))
 	for id, cs := range commentsCache {
@@ -735,6 +866,8 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 		MyIssues:           myIssues,
 		MyIssueStatusOrder: statusOrder,
 		PassedIssues:       passedIssues,
+		BacklogExtra:       backlogExtra,
+		BacklogStale:       backlogStale,
 		APICallCount:       int(c.APICalls() - apiCallsBefore),
 		CommentsCache:      nextCommentsCache,
 	}, nil
