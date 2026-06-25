@@ -1223,16 +1223,31 @@ main {
 .backlog-cats-state { color: var(--fg-muted); }
 .backlog-cats-state.failed { color: var(--status-open); }
 
-/* My Backlog: 左=リスト / 右=常設の詳細バー の2カラム */
+/* My Backlog: リスト+詳細だけ main(960px) の枠を抜けてビューポート全幅を使う。
+   中央=チケット一覧（読みやすい幅で中央寄せ）、右の空きスペース=詳細バー。
+   カテゴリ編集バー・ヒントは通常の 960px 列のまま。 */
 .backlog-layout {
+    width: 100vw;
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    box-sizing: border-box;
+    padding: 0 24px;
     display: flex;
-    gap: 16px;
+    gap: 24px;
     align-items: flex-start;
 }
 
 .backlog-list-col {
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 0;
+}
+
+/* リストは読みやすい幅に抑え、左カラム内で中央寄せ */
+.backlog-list-col .backlog-list,
+.backlog-list-col .backlog-save-state {
+    max-width: 860px;
+    margin-left: auto;
+    margin-right: auto;
 }
 
 .backlog-card.selected {
@@ -1241,8 +1256,8 @@ main {
 }
 
 .backlog-detail {
-    width: 420px;
-    flex-shrink: 0;
+    flex: 0 0 520px;
+    width: 520px;
     position: sticky;
     top: 12px;
     max-height: calc(100vh - 90px);
@@ -1338,7 +1353,10 @@ main {
 /* 横幅が狭い時は詳細バーをリストの下に回す */
 @media (max-width: 860px) {
     .backlog-layout { flex-direction: column; }
+    .backlog-list-col .backlog-list,
+    .backlog-list-col .backlog-save-state { max-width: none; }
     .backlog-detail {
+        flex: none;
         width: auto;
         align-self: stretch;
         position: static;
