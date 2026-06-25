@@ -1033,14 +1033,18 @@ main {
     gap: 6px;
 }
 
+/* 固定列グリッド: handle | rank | key | title(1fr,省略) | status(固定) | due(固定)。
+   status / due を固定幅列にすることで全行で桁が揃い、タイトル長による
+   右端のガタつきが出ない。 */
 .backlog-card {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
+    display: grid;
+    grid-template-columns: 1.2em 1.9em auto minmax(0, 1fr) 7em 6.5em;
+    align-items: center;
+    gap: 10px;
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 6px;
-    padding: 8px 10px;
+    padding: 7px 10px;
     box-shadow: var(--shadow);
     cursor: grab;
 }
@@ -1057,27 +1061,57 @@ main {
 .backlog-handle {
     color: var(--fg-muted);
     font-size: 14px;
-    line-height: 1.4;
+    line-height: 1;
     user-select: none;
-    flex-shrink: 0;
 }
 
 .backlog-rank {
-    min-width: 1.6em;
     text-align: right;
     font-variant-numeric: tabular-nums;
     font-weight: 600;
     color: var(--fg-muted);
-    flex-shrink: 0;
 }
 
-.backlog-card-body {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+.backlog-key {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--link);
+    text-decoration: none;
+    font-weight: 600;
+    white-space: nowrap;
 }
+
+.backlog-key:hover { text-decoration: underline; }
+
+.backlog-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* status は固定列内で左寄せ → 全行で左端が一致して揃う */
+.backlog-card .issue-status {
+    justify-self: start;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.backlog-due {
+    justify-self: end;
+    text-align: right;
+    font-size: 11px;
+    color: var(--fg-muted);
+    white-space: nowrap;
+}
+
+.backlog-due.overdue {
+    color: var(--status-open);
+    font-weight: 600;
+}
+
+.backlog-empty-cell { display: block; }
 
 .backlog-divider {
     list-style: none;

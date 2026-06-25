@@ -850,22 +850,12 @@
 {{end}}
 
 {{define "backlog-card"}}
-<li class="backlog-card" draggable="true" data-issue-id="{{.IssueID}}">
+<li class="backlog-card" draggable="true" data-issue-id="{{.IssueID}}" data-status="{{.IssueStatus}}">
     <span class="backlog-handle" aria-hidden="true" title="ドラッグで並べ替え">⠿</span>
     <span class="backlog-rank"></span>
-    <div class="backlog-card-body">
-        <div class="mention-head">
-            <a class="key" href="{{.IssueURL}}" target="_blank" rel="noopener">{{.IssueKey}}</a>
-            <span class="summary">{{.IssueSummary}}</span>
-            {{if .IssueStatus}}<span class="issue-status" data-status="{{.IssueStatus}}">{{.IssueStatus}}</span>{{end}}
-            {{if .LatestSince}}<span class="latest-since" title="{{.LatestSinceJST}}">{{.LatestSince}}</span>{{end}}
-        </div>
-        {{if .DueDate}}
-            <div class="mention-meta">
-                <span class="meta-label">期限:</span>
-                <span class="meta-val{{if .Overdue}} overdue{{end}}">{{.DueDate}}{{if .Overdue}} ⚠{{end}}</span>
-            </div>
-        {{end}}
-    </div>
+    <a class="backlog-key key" href="{{.IssueURL}}" target="_blank" rel="noopener">{{.IssueKey}}</a>
+    <span class="backlog-title" title="{{.IssueSummary}}">{{.IssueSummary}}</span>
+    {{if .IssueStatus}}<span class="issue-status" data-status="{{.IssueStatus}}">{{.IssueStatus}}</span>{{else}}<span class="backlog-empty-cell"></span>{{end}}
+    {{if .DueDate}}<span class="backlog-due{{if .Overdue}} overdue{{end}}" title="期限">{{.DueDate}}{{if .Overdue}} ⚠{{end}}</span>{{else}}<span class="backlog-empty-cell"></span>{{end}}
 </li>
 {{end}}
