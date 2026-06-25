@@ -139,6 +139,13 @@ type Issue struct {
 	Created       string     `json:"created"`
 	Updated       string     `json:"updated"`
 	ParentIssueId *int       `json:"parentIssueId"`
+	Category      []Category `json:"category"`
+}
+
+// Category は課題に付与されたカテゴリ。UI のカテゴリ名表示に使う。
+type Category struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
 }
 
 type Star struct {

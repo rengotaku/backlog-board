@@ -131,11 +131,20 @@ type Snapshot struct {
 	BacklogExtra []MyIssueRecord `json:"backlog_extra,omitempty"`
 	// BacklogStale は priorities に居るが現在の取込対象に無く、完了でもない課題（警告付き残留）。
 	BacklogStale []MyIssueRecord `json:"backlog_stale,omitempty"`
-	APICallCount int             `json:"api_call_count,omitempty"`
+	// BacklogCategories は現在の取込対象カテゴリ（id + 解決できた名前）。UI 表示用。
+	BacklogCategories []CategoryInfo `json:"backlog_categories,omitempty"`
+	APICallCount      int            `json:"api_call_count,omitempty"`
 	// CommentsCache は次回 Fetch 時にコメント取得をスキップするためのキャッシュ。
 	// キーは issue_id。次回の issue.updated が一致する課題はキャッシュを流用する。
 	// 未対応 mention の課題は常時取得するため、ここに乗っていても新規取得される。
 	CommentsCache map[int]CommentsCacheEntry `json:"comments_cache,omitempty"`
+}
+
+// CategoryInfo は取込対象カテゴリの id と表示名。名前は取得課題から学習するため、
+// 0 件カテゴリでは空のことがある（UI は ID で表示する）。
+type CategoryInfo struct {
+	ID   int    `json:"id"`
+	Name string `json:"name,omitempty"`
 }
 
 // CommentsCacheEntry は 1 課題分のコメント一覧と、その取得時点での issue.updated を保持する。
@@ -418,8 +427,9 @@ type FetchOptions struct {
 	// Pages は Notifications を何ページ取得するか（1 ページ = Count 件）。
 	// 長期休暇明けの取りこぼし防止用。0 以下なら 1 として扱う。
 	Pages int
-	// CategoryID > 0 のとき、そのカテゴリの課題（完了除く）を My Backlog 用に取り込む。
-	CategoryID int
+	// CategoryIDs は My Backlog に取り込む Backlog カテゴリ ID 群（完了除く・担当者問わず）。
+	// 空なら取り込まない。
+	CategoryIDs []int
 	// PriorityIDs は priorities.json に保存済みの issue_id 群。取込対象に無いものを
 	// IssueByID で現況確認し、完了でなければ警告付きで残す（stale 判定）。
 	PriorityIDs []int
@@ -570,18 +580,32 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 	}
 
 	var backlogExtra []MyIssueRecord
-	if opts.CategoryID > 0 {
+	categoryNames := map[int]string{}
+	if len(opts.CategoryIDs) > 0 {
 		params := url.Values{
-			"categoryId[]": {fmt.Sprintf("%d", opts.CategoryID)},
-			"count":        {"100"},
-			"sort":         {"updated"},
-			"order":        {"desc"},
+			"count": {"100"},
+			"sort":  {"updated"},
+			"order": {"desc"},
+		}
+		for _, cid := range opts.CategoryIDs {
+			categoryNames[cid] = "" // 0 件でも UI に出せるよう存在は記録
+			params.Add("categoryId[]", fmt.Sprintf("%d", cid))
 		}
 		catIssues, err := c.Issues(params)
 		if err != nil {
-			slog.Warn("category issues fetch failed", "category_id", opts.CategoryID, "error", err)
+			slog.Warn("category issues fetch failed", "category_ids", opts.CategoryIDs, "error", err)
+		}
+		want := map[int]bool{}
+		for _, cid := range opts.CategoryIDs {
+			want[cid] = true
 		}
 		for _, iss := range catIssues {
+			// 課題の category からターゲット ID の名前を学習（UI 表示用）
+			for _, cat := range iss.Category {
+				if want[cat.ID] && cat.Name != "" {
+					categoryNames[cat.ID] = cat.Name
+				}
+			}
 			if iss.Status != nil && iss.Status.Name == "完了" {
 				continue
 			}
@@ -849,6 +873,12 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 		}
 	}
 
+	// 取込対象カテゴリ一覧（UI 表示用）。指定順を保ち、名前は学習できた分だけ付ける。
+	var backlogCategories []CategoryInfo
+	for _, cid := range opts.CategoryIDs {
+		backlogCategories = append(backlogCategories, CategoryInfo{ID: cid, Name: categoryNames[cid]})
+	}
+
 	// 次回 Fetch 用にコメントキャッシュを構築。各 issue_id の現在の updated_at と紐づけて保存する。
 	nextCommentsCache := make(map[int]CommentsCacheEntry, len(commentsCache))
 	for id, cs := range commentsCache {
@@ -869,6 +899,7 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 		PassedIssues:       passedIssues,
 		BacklogExtra:       backlogExtra,
 		BacklogStale:       backlogStale,
+		BacklogCategories:  backlogCategories,
 		APICallCount:       int(c.APICalls() - apiCallsBefore),
 		CommentsCache:      nextCommentsCache,
 	}, nil

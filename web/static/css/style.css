@@ -1143,6 +1143,86 @@ main {
     font-weight: 600;
 }
 
+/* My Backlog: 対象カテゴリ編集バー */
+.backlog-cats {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 4px 0 12px;
+    padding: 8px 10px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.backlog-cats-label {
+    color: var(--fg-muted);
+    font-weight: 600;
+}
+
+.backlog-cats-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.cat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2px 8px;
+}
+
+.cat-chip-remove {
+    border: 0;
+    background: none;
+    color: var(--fg-muted);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 0;
+    line-height: 1;
+}
+
+.cat-chip-remove:hover { color: var(--status-open); }
+
+.backlog-cats-input {
+    width: 8em;
+    padding: 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--fg);
+    font-size: 12px;
+}
+
+.backlog-cats-add,
+.backlog-cats-save {
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--fg);
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 3px 10px;
+    font-size: 12px;
+}
+
+.backlog-cats-save {
+    border-color: var(--link);
+    color: var(--link);
+    font-weight: 600;
+}
+
+.backlog-cats-add:hover,
+.backlog-cats-save:hover { background: var(--bg-soft); }
+
+.backlog-cats-state { color: var(--fg-muted); }
+.backlog-cats-state.failed { color: var(--status-open); }
+
 /* My Backlog: 左=リスト / 右=常設の詳細バー の2カラム */
 .backlog-layout {
     display: flex;

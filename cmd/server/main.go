@@ -58,6 +58,17 @@ func run() error {
 
 	cache := store.New(cfg.CachePath)
 	priorities := store.NewPriorityStore(cfg.CachePath)
+	categories := store.NewCategoryStore(cfg.CachePath)
+	// categories.json が無ければ config 由来のシードで初期化（UI 変更後はファイルが SoT）。
+	if _, exists, lerr := categories.Load(); lerr != nil {
+		slog.Warn("load categories failed", "error", lerr)
+	} else if !exists {
+		if seed := cfg.SeedCategoryIDs(); len(seed) > 0 {
+			if serr := categories.Save(seed); serr != nil {
+				slog.Warn("seed categories failed", "error", serr)
+			}
+		}
+	}
 
 	var refreshFn func() error
 	var postStarFn func(commentID int) error
@@ -76,11 +87,17 @@ func run() error {
 			} else {
 				priorityIDs = o
 			}
+			var categoryIDs []int
+			if o, _, lerr := categories.Load(); lerr != nil {
+				slog.Warn("load categories for fetch failed", "error", lerr)
+			} else {
+				categoryIDs = o
+			}
 			snap, err := backlog.Fetch(blClient, backlog.FetchOptions{
 				Count:       100,
 				IncludeRead: true,
 				Pages:       cfg.NotificationPages,
-				CategoryID:  cfg.CategoryID,
+				CategoryIDs: categoryIDs,
 				PriorityIDs: priorityIDs,
 			}, prev)
 			if err != nil {
@@ -153,6 +170,7 @@ func run() error {
 		LinkAllowPrefixes: linkAllowPrefixes,
 		PostCommentStar:   postStarFn,
 		Priorities:        priorities,
+		Categories:        categories,
 	})
 
 	srv := &http.Server{

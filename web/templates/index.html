@@ -245,8 +245,22 @@
     </div>
 
     <div id="tab-backlog" class="tab-pane" style="display:none">
+        {{if .CanEditCategories}}
+            <div class="backlog-cats" id="backlog-cats">
+                <span class="backlog-cats-label">対象カテゴリ</span>
+                <span class="backlog-cats-list" id="backlog-cats-list">
+                    {{range .BacklogCategories}}
+                        <span class="cat-chip" data-id="{{.ID}}">{{if .Name}}{{.Name}}{{else}}#{{.ID}}{{end}}<button type="button" class="cat-chip-remove" title="外す" aria-label="外す">✕</button></span>
+                    {{end}}
+                </span>
+                <input type="number" class="backlog-cats-input" id="backlog-cats-input" placeholder="カテゴリID" min="1" inputmode="numeric">
+                <button type="button" class="backlog-cats-add" id="backlog-cats-add">追加</button>
+                <button type="button" class="backlog-cats-save" id="backlog-cats-save" hidden>保存して再取得</button>
+                <span class="backlog-cats-state" id="backlog-cats-state" aria-live="polite"></span>
+            </div>
+        {{end}}
         {{if eq .MyBacklogTotal 0}}
-            <p class="empty">対象の課題はありません</p>
+            <p class="empty">対象の課題はありません（担当課題なし・対象カテゴリ未設定/0件）</p>
         {{else}}
             <p class="backlog-hint">手を付ける順に上からドラッグして並べ替え。行クリックで右に概要とコメントを表示。並びはこの端末にのみ保存され、Backlog には書き戻しません。</p>
             <div class="backlog-layout">
@@ -896,6 +910,76 @@
                 if (e.target.closest('.backlog-handle')) return; // ハンドルはドラッグ用
                 var card = e.target.closest('.backlog-card');
                 if (card) selectCard(card);
+            });
+        }
+
+        // --- My Backlog: 対象カテゴリの編集（複数・UI から変更し再取得） ---
+        var catsEl = document.getElementById('backlog-cats');
+        if (catsEl) {
+            var catsList = document.getElementById('backlog-cats-list');
+            var catInput = document.getElementById('backlog-cats-input');
+            var catAdd = document.getElementById('backlog-cats-add');
+            var catSave = document.getElementById('backlog-cats-save');
+            var catState = document.getElementById('backlog-cats-state');
+
+            function currentCatIDs() {
+                return Array.prototype.slice.call(catsList.querySelectorAll('.cat-chip'))
+                    .map(function(c) { return parseInt(c.dataset.id, 10); })
+                    .filter(function(n) { return n > 0; });
+            }
+            function markCatsDirty() {
+                catSave.hidden = false;
+                catState.textContent = '未保存';
+                catState.className = 'backlog-cats-state';
+            }
+            function makeCatChip(id) {
+                var chip = document.createElement('span');
+                chip.className = 'cat-chip';
+                chip.dataset.id = String(id);
+                chip.textContent = '#' + id;
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'cat-chip-remove';
+                btn.title = '外す';
+                btn.textContent = '✕';
+                chip.appendChild(btn);
+                return chip;
+            }
+            function addCatID() {
+                var v = parseInt(catInput.value, 10);
+                if (!(v > 0)) return;
+                if (currentCatIDs().indexOf(v) >= 0) { catInput.value = ''; return; }
+                catsList.appendChild(makeCatChip(v));
+                catInput.value = '';
+                markCatsDirty();
+            }
+            catAdd.addEventListener('click', addCatID);
+            catInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { e.preventDefault(); addCatID(); }
+            });
+            catsList.addEventListener('click', function(e) {
+                var rm = e.target.closest('.cat-chip-remove');
+                if (!rm) return;
+                var chip = rm.closest('.cat-chip');
+                if (chip) { chip.remove(); markCatsDirty(); }
+            });
+            catSave.addEventListener('click', async function() {
+                catSave.disabled = true;
+                catState.textContent = '保存して再取得中…（数十秒かかることがあります）';
+                catState.className = 'backlog-cats-state';
+                try {
+                    var r = await fetch('/api/categories', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ category_ids: currentCatIDs() })
+                    });
+                    if (!r.ok) { var t = await r.text(); throw new Error('HTTP ' + r.status + ' ' + t); }
+                    window.location.reload();
+                } catch (err) {
+                    catSave.disabled = false;
+                    catState.textContent = '保存失敗: ' + (err && err.message ? err.message : err);
+                    catState.className = 'backlog-cats-state failed';
+                }
             });
         }
     })();

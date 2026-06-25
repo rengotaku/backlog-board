@@ -37,8 +37,12 @@ domain = "yourspace.backlog.com"
 # 例: GitHub の自社 org の特定リポジトリのみ許可:
 # allowed_link_prefixes = ["https://github.com/<org>/<repo>/"]
 
-# 任意: My Backlog タブに取り込む Backlog カテゴリ ID (デフォルト 0 = 取り込まない)。
-# 指定すると、そのカテゴリが付いた課題 (完了除く) を担当者問わず My Backlog の対象に加える。
+# 任意: My Backlog タブに取り込む Backlog カテゴリ。完了除く・担当者問わず取り込む。
+# これらは初回起動時に categories.json へシードされるだけで、以後は UI から編集でき
+# (categories.json が SoT)、config を変えても既存の categories.json は上書きされない。
 # カテゴリ ID は Backlog のボード URL の category= パラメータで確認できる。
 # 例: https://<domain>/board/DSC?category=482810 → 482810
+# 単数 (後方互換):
 # category_id = 482810
+# 複数:
+# category_ids = [482810, 482811]

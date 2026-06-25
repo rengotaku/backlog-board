@@ -41,6 +41,8 @@ type Options struct {
 	LinkAllowPrefixes []string
 	PostCommentStar   func(commentID int) error
 	Priorities        *store.PriorityStore
+	// Categories は取込対象カテゴリの永続化ストア。nil なら UI 編集 API を公開しない。
+	Categories *store.CategoryStore
 }
 
 type Handler struct {
@@ -50,6 +52,7 @@ type Handler struct {
 	refresh           func() error
 	postStar          func(commentID int) error
 	priorities        *store.PriorityStore
+	categories        *store.CategoryStore
 	opts              Options
 	linkAllowPrefixes []string
 }
@@ -62,6 +65,7 @@ func New(cache *store.Cache, templates map[string]*template.Template, staticFS f
 		refresh:           refresh,
 		postStar:          opts.PostCommentStar,
 		priorities:        opts.Priorities,
+		categories:        opts.Categories,
 		opts:              opts,
 		linkAllowPrefixes: opts.LinkAllowPrefixes,
 	}
@@ -85,7 +89,33 @@ func (h *Handler) Routes() http.Handler {
 	if h.priorities != nil {
 		r.POST("/api/priorities", h.handleSetPriorities)
 	}
+	if h.categories != nil {
+		r.POST("/api/categories", h.handleSetCategories)
+	}
 	return r
+}
+
+// handleSetCategories は My Backlog の取込対象カテゴリ ID を UI から更新する。
+// body は JSON {"category_ids": [int, ...]}。保存後、即時 refresh して反映する。
+func (h *Handler) handleSetCategories(c *gin.Context) {
+	var body struct {
+		CategoryIDs []int `json:"category_ids"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	if err := h.categories.Save(body.CategoryIDs); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// カテゴリ変更を即反映するため再フェッチ（失敗してもログのみ、次の定期 fetch で反映）。
+	if h.refresh != nil {
+		if err := h.refresh(); err != nil {
+			slog.Warn("refresh after category change failed", "error", err)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 // handleSetPriorities は My Backlog タブのドラッグ並べ替え結果を永続化する。
@@ -299,13 +329,15 @@ type viewData struct {
 	// MyBacklogRest は優先順未設定（直近に割り当てられた等）の担当課題で、
 	// テンプレートでは区切り線の下に出す。CanReorder が true のときのみ
 	// ドラッグ並べ替え + 永続化が有効。
-	MyBacklogTop   []myIssueView
-	MyBacklogRest  []myIssueView
-	MyBacklogTotal int
-	CanReorder     bool
-	MyIssueTotal   int
-	CanRefresh     bool
-	APICallCount   int
+	MyBacklogTop      []myIssueView
+	MyBacklogRest     []myIssueView
+	MyBacklogTotal    int
+	BacklogCategories []backlog.CategoryInfo
+	CanEditCategories bool
+	CanReorder        bool
+	MyIssueTotal      int
+	CanRefresh        bool
+	APICallCount      int
 }
 
 // myIssueKanbanColumn は kanban モード用の 1 ステータス列。
@@ -451,6 +483,8 @@ func (h *Handler) handleIndex(c *gin.Context) {
 	}
 	data.MyBacklogTop, data.MyBacklogRest = h.buildMyIssueBacklog(snap, order, now)
 	data.MyBacklogTotal = len(data.MyBacklogTop) + len(data.MyBacklogRest)
+	data.BacklogCategories = snap.BacklogCategories
+	data.CanEditCategories = h.categories != nil
 	data.MyIssueTotal = len(snap.MyIssues)
 	data.APICallCount = snap.APICallCount
 

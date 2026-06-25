@@ -27,9 +27,21 @@ type Config struct {
 	// 長期休暇明け等で 100 件を超えるメンションが溜まっていた場合の取りこぼし防止用。
 	// デフォルト 3 = 300 件まで遡る。1〜10 にクランプ。
 	NotificationPages int `toml:"notification_pages"`
-	// CategoryID > 0 のとき、その Backlog カテゴリの課題（完了除く）を My Backlog タブに
-	// 担当者問わず取り込む。0（未指定）なら取り込まない。
-	CategoryID int `toml:"category_id"`
+	// CategoryID / CategoryIDs は My Backlog に取り込む Backlog カテゴリ。完了除く・担当者問わず。
+	// これらは categories.json（UI から編集可能）の初回シードにのみ使う。
+	// 以後の SoT は categories.json。CategoryID は単数指定の後方互換。
+	CategoryID  int   `toml:"category_id"`
+	CategoryIDs []int `toml:"category_ids"`
+}
+
+// SeedCategoryIDs は config 由来の初回シード用カテゴリ ID（category_id + category_ids をマージ）。
+func (c *Config) SeedCategoryIDs() []int {
+	var ids []int
+	if c.CategoryID > 0 {
+		ids = append(ids, c.CategoryID)
+	}
+	ids = append(ids, c.CategoryIDs...)
+	return ids
 }
 
 const (
