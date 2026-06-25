@@ -1016,3 +1016,84 @@ main {
 .kanban-restore-chip:hover {
     background: var(--bg-soft);
 }
+
+/* --- My Backlog (個人優先順位 / ドラッグ並べ替え) --- */
+.backlog-hint {
+    color: var(--fg-muted);
+    font-size: 12px;
+    margin: 8px 0 12px;
+}
+
+.backlog-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.backlog-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    box-shadow: var(--shadow);
+    cursor: grab;
+}
+
+.backlog-card:active {
+    cursor: grabbing;
+}
+
+.backlog-card.dragging {
+    opacity: 0.5;
+    border-color: var(--link);
+}
+
+.backlog-handle {
+    color: var(--fg-muted);
+    font-size: 14px;
+    line-height: 1.4;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.backlog-rank {
+    min-width: 1.6em;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--fg-muted);
+    flex-shrink: 0;
+}
+
+.backlog-card-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.backlog-divider {
+    list-style: none;
+    border-top: 1px dashed var(--border);
+    margin: 6px 0 2px;
+    padding-top: 8px;
+    color: var(--fg-muted);
+    font-size: 11px;
+}
+
+.backlog-save-state {
+    margin-top: 10px;
+    font-size: 12px;
+    min-height: 1.2em;
+    color: var(--fg-muted);
+}
+
+.backlog-save-state.saved { color: var(--status-resolved, #1a7f37); }
+.backlog-save-state.failed { color: var(--status-open, #cf222e); }

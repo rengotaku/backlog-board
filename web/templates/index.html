@@ -7,6 +7,7 @@
     <div class="tab-nav">
         <button class="tab-btn active" data-tab="mentions">メンション <span class="tab-badge">{{.Total}}</span></button>
         <button class="tab-btn" data-tab="myissues">担当課題 <span class="tab-badge">{{.MyIssueTotal}}</span></button>
+        <button class="tab-btn" data-tab="backlog">My Backlog <span class="tab-badge">{{.MyIssueTotal}}</span></button>
     </div>
 
     <div id="tab-mentions" class="tab-pane">
@@ -240,6 +241,26 @@
                 {{end}}
             {{end}}
         </div>
+        {{end}}
+    </div>
+
+    <div id="tab-backlog" class="tab-pane" style="display:none">
+        {{if eq .MyIssueTotal 0}}
+            <p class="empty">担当中の課題はありません</p>
+        {{else}}
+            <p class="backlog-hint">手を付ける順に上からドラッグして並べ替えます。並びはこの端末にのみ保存され、Backlog には書き戻しません。</p>
+            <ul class="backlog-list" id="backlog-list"{{if .CanReorder}} data-can-reorder="1"{{end}}>
+                {{range .MyBacklogTop}}
+                    {{template "backlog-card" .}}
+                {{end}}
+                {{if .MyBacklogRest}}
+                    <li class="backlog-divider" id="backlog-divider"><span>未設定（直近に割り当て / 並べ替え対象）</span></li>
+                    {{range .MyBacklogRest}}
+                        {{template "backlog-card" .}}
+                    {{end}}
+                {{end}}
+            </ul>
+            <div class="backlog-save-state" id="backlog-save-state" aria-live="polite"></div>
         {{end}}
     </div>
 
@@ -705,6 +726,115 @@
                 }
             });
         });
+
+        // --- My Backlog: ドラッグ並べ替え + 永続化 ---
+        // 並びはローカルの priorities.json に保存（Backlog には書き戻さない）。
+        // drop 時に DOM 上の全カードの issue_id を上から順に POST する。
+        var backlogList = document.getElementById('backlog-list');
+        if (backlogList && backlogList.dataset.canReorder === '1') {
+            var saveStateEl = document.getElementById('backlog-save-state');
+            var divider = document.getElementById('backlog-divider');
+            var dragged = null;
+
+            function renumber() {
+                var rank = 1;
+                backlogList.querySelectorAll('.backlog-card').forEach(function(card) {
+                    var el = card.querySelector('.backlog-rank');
+                    if (el) el.textContent = rank++;
+                });
+            }
+            renumber();
+
+            function setSaveState(text, cls) {
+                if (!saveStateEl) return;
+                saveStateEl.textContent = text;
+                saveStateEl.className = 'backlog-save-state' + (cls ? ' ' + cls : '');
+            }
+
+            function collectOrder() {
+                var ids = [];
+                backlogList.querySelectorAll('.backlog-card').forEach(function(card) {
+                    var id = parseInt(card.dataset.issueId, 10);
+                    if (id > 0) ids.push(id);
+                });
+                return ids;
+            }
+
+            async function persist() {
+                renumber();
+                setSaveState('保存中…', 'saving');
+                try {
+                    var r = await fetch('/api/priorities', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({order: collectOrder()})
+                    });
+                    if (!r.ok) {
+                        var txt = await r.text();
+                        throw new Error('HTTP ' + r.status + ' ' + txt);
+                    }
+                    setSaveState('保存しました', 'saved');
+                } catch (err) {
+                    setSaveState('保存に失敗: ' + (err && err.message ? err.message : err), 'failed');
+                }
+            }
+
+            // dragover 中のマウス位置から、挿入先（この要素の前に入れる）を決める。
+            function cardAfterPoint(y) {
+                var cards = Array.prototype.slice.call(
+                    backlogList.querySelectorAll('.backlog-card:not(.dragging)')
+                );
+                var closest = null;
+                var closestOffset = Number.NEGATIVE_INFINITY;
+                cards.forEach(function(card) {
+                    var box = card.getBoundingClientRect();
+                    var offset = y - box.top - box.height / 2;
+                    if (offset < 0 && offset > closestOffset) {
+                        closestOffset = offset;
+                        closest = card;
+                    }
+                });
+                return closest;
+            }
+
+            backlogList.addEventListener('dragstart', function(e) {
+                var card = e.target.closest('.backlog-card');
+                if (!card) return;
+                dragged = card;
+                card.classList.add('dragging');
+                if (e.dataTransfer) {
+                    e.dataTransfer.effectAllowed = 'move';
+                    // Firefox は setData しないと drag が始まらない
+                    try { e.dataTransfer.setData('text/plain', card.dataset.issueId || ''); } catch (ex) {}
+                }
+            });
+
+            backlogList.addEventListener('dragover', function(e) {
+                if (!dragged) return;
+                e.preventDefault();
+                if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+                var after = cardAfterPoint(e.clientY);
+                // 並べ替えが確定したら「未設定」区切り線は意味を失うので外す
+                if (divider && divider.parentNode) { divider.remove(); divider = null; }
+                if (after == null) {
+                    backlogList.appendChild(dragged);
+                } else {
+                    backlogList.insertBefore(dragged, after);
+                }
+            });
+
+            backlogList.addEventListener('drop', function(e) {
+                if (!dragged) return;
+                e.preventDefault();
+            });
+
+            backlogList.addEventListener('dragend', function() {
+                if (!dragged) return;
+                dragged.classList.remove('dragging');
+                dragged = null;
+                persist();
+            });
+        }
     })();
     </script>
 {{end}}
@@ -717,4 +847,25 @@
     {{.CommentHistory}}
 </details>
 {{end}}
+{{end}}
+
+{{define "backlog-card"}}
+<li class="backlog-card" draggable="true" data-issue-id="{{.IssueID}}">
+    <span class="backlog-handle" aria-hidden="true" title="ドラッグで並べ替え">⠿</span>
+    <span class="backlog-rank"></span>
+    <div class="backlog-card-body">
+        <div class="mention-head">
+            <a class="key" href="{{.IssueURL}}" target="_blank" rel="noopener">{{.IssueKey}}</a>
+            <span class="summary">{{.IssueSummary}}</span>
+            {{if .IssueStatus}}<span class="issue-status" data-status="{{.IssueStatus}}">{{.IssueStatus}}</span>{{end}}
+            {{if .LatestSince}}<span class="latest-since" title="{{.LatestSinceJST}}">{{.LatestSince}}</span>{{end}}
+        </div>
+        {{if .DueDate}}
+            <div class="mention-meta">
+                <span class="meta-label">期限:</span>
+                <span class="meta-val{{if .Overdue}} overdue{{end}}">{{.DueDate}}{{if .Overdue}} ⚠{{end}}</span>
+            </div>
+        {{end}}
+    </div>
+</li>
 {{end}}

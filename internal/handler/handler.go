@@ -28,11 +28,14 @@ import (
 // LinkAllowPrefixes: コメント本文中の [text](url) リンクを <a href> として有効化する URL prefix。
 //   nil または空 (デフォルト) では http/https/mailse 全許可。非空にすると prefix allowlist で厳格化する。
 // PostCommentStar: スター付与 callback。nil の場合は /api/star エンドポイントを公開しない。
+// Priorities: 個人 backlog（手を付ける順番）の永続化ストア。nil の場合は
+//   /api/priorities エンドポイントを公開せず、My Backlog タブは保存順なしで描画する。
 type Options struct {
 	AllowedHosts      []string
 	AllowedOrigins    []string
 	LinkAllowPrefixes []string
 	PostCommentStar   func(commentID int) error
+	Priorities        *store.PriorityStore
 }
 
 type Handler struct {
@@ -41,6 +44,7 @@ type Handler struct {
 	staticFS          fs.FS
 	refresh           func() error
 	postStar          func(commentID int) error
+	priorities        *store.PriorityStore
 	opts              Options
 	linkAllowPrefixes []string
 }
@@ -52,6 +56,7 @@ func New(cache *store.Cache, templates map[string]*template.Template, staticFS f
 		staticFS:          staticFS,
 		refresh:           refresh,
 		postStar:          opts.PostCommentStar,
+		priorities:        opts.Priorities,
 		opts:              opts,
 		linkAllowPrefixes: opts.LinkAllowPrefixes,
 	}
@@ -72,7 +77,29 @@ func (h *Handler) Routes() http.Handler {
 	if h.postStar != nil {
 		r.POST("/api/star", h.handleStar)
 	}
+	if h.priorities != nil {
+		r.POST("/api/priorities", h.handleSetPriorities)
+	}
 	return r
+}
+
+// handleSetPriorities は My Backlog タブのドラッグ並べ替え結果を永続化する。
+// body は JSON {"order": [issue_id, ...]}。上から手を付ける順。
+// snapshot との突合・欠番除去は描画側 (buildMyIssueBacklog) で行うため、
+// ここでは受け取った並びをそのまま保存する（重複・不正 id の除去は store 側）。
+func (h *Handler) handleSetPriorities(c *gin.Context) {
+	var body struct {
+		Order []int `json:"order"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	if err := h.priorities.Save(body.Order); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 // requireAllowedHost は Host ヘッダが allowlist に含まれない場合 403 を返す。
@@ -263,9 +290,16 @@ type viewData struct {
 	MyIssueActive  []myIssueBucket
 	MyIssuePassed  []passedIssueView
 	MyIssueKanban  []myIssueKanbanColumn
-	MyIssueTotal   int
-	CanRefresh     bool
-	APICallCount   int
+	// MyBacklogTop は保存済みの優先順（手を付ける順）に並んだ担当課題。
+	// MyBacklogRest は優先順未設定（直近に割り当てられた等）の担当課題で、
+	// テンプレートでは区切り線の下に出す。CanReorder が true のときのみ
+	// ドラッグ並べ替え + 永続化が有効。
+	MyBacklogTop  []myIssueView
+	MyBacklogRest []myIssueView
+	CanReorder    bool
+	MyIssueTotal  int
+	CanRefresh    bool
+	APICallCount  int
 }
 
 // myIssueKanbanColumn は kanban モード用の 1 ステータス列。
@@ -311,6 +345,7 @@ type myIssueBucket struct {
 }
 
 type myIssueView struct {
+	IssueID               int
 	IssueKey              string
 	IssueSummary          string
 	IssueStatus           string
@@ -394,6 +429,16 @@ func (h *Handler) handleIndex(c *gin.Context) {
 	data.MyIssueActive = h.buildMyIssueActive(snap, now)
 	data.MyIssuePassed = h.buildMyIssuePassed(snap, now)
 	data.MyIssueKanban = h.buildMyIssueKanban(snap, now)
+	data.CanReorder = h.priorities != nil
+	var order []int
+	if h.priorities != nil {
+		if o, err := h.priorities.Load(); err != nil {
+			slog.Warn("load priorities failed", "error", err)
+		} else {
+			order = o
+		}
+	}
+	data.MyBacklogTop, data.MyBacklogRest = h.buildMyIssueBacklog(snap, order, now)
 	data.MyIssueTotal = len(snap.MyIssues)
 	data.APICallCount = snap.APICallCount
 
@@ -611,6 +656,7 @@ func (h *Handler) buildMentionBuckets(snap *backlog.Snapshot, now time.Time) []m
 
 func (h *Handler) toMyIssueView(r backlog.MyIssueRecord, now time.Time) myIssueView {
 	return myIssueView{
+		IssueID:               r.IssueID,
 		IssueKey:              r.IssueKey,
 		IssueSummary:          r.IssueSummary,
 		IssueStatus:           r.IssueStatus,
@@ -716,6 +762,46 @@ func (h *Handler) buildMyIssueKanban(snap *backlog.Snapshot, now time.Time) []my
 		})
 	}
 	return out
+}
+
+// My Backlog: 保存済みの優先順 (order = issue_id の並び) に従って担当課題を並べ、
+// 「優先順設定済み (top)」と「未設定 (rest)」の 2 グループに分けて返す。
+//   - top:  order に載っている課題を order の順で。order にあるが現在の担当課題に
+//           無い id（完了して担当外れた等）は自然に脱落する。
+//   - rest: 担当課題のうち order に無いもの。直近に割り当てられた課題等。
+//           UpdatedAt 降順で並べ、区切り線の下に出す。
+// ドラッグで rest の課題を top に引き上げ、保存すると次回から top に昇格する。
+func (h *Handler) buildMyIssueBacklog(snap *backlog.Snapshot, order []int, now time.Time) (top, rest []myIssueView) {
+	byID := make(map[int]backlog.MyIssueRecord, len(snap.MyIssues))
+	for _, r := range snap.MyIssues {
+		byID[r.IssueID] = r
+	}
+
+	inOrder := make(map[int]bool, len(order))
+	top = make([]myIssueView, 0, len(order))
+	for _, id := range order {
+		r, ok := byID[id]
+		if !ok || inOrder[id] {
+			continue
+		}
+		inOrder[id] = true
+		top = append(top, h.toMyIssueView(r, now))
+	}
+
+	restRecs := make([]backlog.MyIssueRecord, 0, len(snap.MyIssues))
+	for _, r := range snap.MyIssues {
+		if !inOrder[r.IssueID] {
+			restRecs = append(restRecs, r)
+		}
+	}
+	sort.SliceStable(restRecs, func(i, j int) bool {
+		return restRecs[i].UpdatedAt > restRecs[j].UpdatedAt
+	})
+	rest = make([]myIssueView, 0, len(restRecs))
+	for _, r := range restRecs {
+		rest = append(rest, h.toMyIssueView(r, now))
+	}
+	return top, rest
 }
 
 // パス済み: 自分から他人に担当を振り直した直近の課題を時系列降順で並べる。

@@ -57,6 +57,7 @@ func run() error {
 	}
 
 	cache := store.New(cfg.CachePath)
+	priorities := store.NewPriorityStore(cfg.CachePath)
 
 	var refreshFn func() error
 	var postStarFn func(commentID int) error
@@ -142,6 +143,7 @@ func run() error {
 		AllowedOrigins:    allowedOrigins,
 		LinkAllowPrefixes: linkAllowPrefixes,
 		PostCommentStar:   postStarFn,
+		Priorities:        priorities,
 	})
 
 	srv := &http.Server{
