@@ -26,6 +26,11 @@ domain = "yourspace.backlog.com"
 # 任意: バックグラウンドフェッチの間隔 (デフォルト 15m)
 # fetch_interval = "15m"
 
+# 任意: 未対応メンションの新着検知だけを行う軽量ポーリング間隔 (デフォルト 1m, 負値で無効)
+# この間隔ごとに Notifications を 1 コールだけ叩き、現 snapshot に無い未読の未対応候補が
+# あれば即フル fetch をキックする。フル fetch の頻度・API コストは基本そのまま。
+# unhandled_poll_interval = "1m"
+
 # 任意: Notifications を何ページ取得するか (デフォルト 3, 1〜10)
 # 1 ページ = 100 件 (Backlog API 上限)。長期休暇明け等で 100 件超のメンションが
 # 溜まっていた場合の取りこぼし防止用に複数ページ取得する。
