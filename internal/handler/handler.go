@@ -43,6 +43,9 @@ type Options struct {
 	Priorities        *store.PriorityStore
 	// Categories は取込対象カテゴリの永続化ストア。nil なら UI 編集 API を公開しない。
 	Categories *store.CategoryStore
+	// Events は cold 層（イベント履歴 / 完了・パス課題アーカイブ）の読取ストア。
+	// nil なら /history ページと /api/history・/api/archive を公開しない。
+	Events *store.EventLog
 }
 
 type Handler struct {
@@ -53,6 +56,7 @@ type Handler struct {
 	postStar          func(commentID int) error
 	priorities        *store.PriorityStore
 	categories        *store.CategoryStore
+	events            *store.EventLog
 	opts              Options
 	linkAllowPrefixes []string
 }
@@ -66,6 +70,7 @@ func New(cache *store.Cache, templates map[string]*template.Template, staticFS f
 		postStar:          opts.PostCommentStar,
 		priorities:        opts.Priorities,
 		categories:        opts.Categories,
+		events:            opts.Events,
 		opts:              opts,
 		linkAllowPrefixes: opts.LinkAllowPrefixes,
 	}
@@ -80,6 +85,11 @@ func (h *Handler) Routes() http.Handler {
 	r.GET("/", h.handleIndex)
 	r.GET("/healthz", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 	r.GET("/api/state", h.handleState)
+	if h.events != nil {
+		r.GET("/history", h.handleHistoryPage)
+		r.GET("/api/history", h.handleAPIHistory)
+		r.GET("/api/archive", h.handleAPIArchive)
+	}
 	if h.refresh != nil {
 		r.POST("/api/refresh", h.handleRefresh)
 	}
@@ -244,6 +254,84 @@ func computeMentionDiff(current, previous *backlog.Snapshot) diffCounts {
 		}
 	}
 	return d
+}
+
+// monthQueryPattern は /api/history?month= の検証用。store 側で
+// "events-<month>.jsonl" のパスを組むため、ここで厳格に絞ってパストラバーサルを防ぐ。
+var monthQueryPattern = regexp.MustCompile(`^\d{4}-\d{2}$`)
+
+// handleHistoryPage は cold 層（アーカイブ + イベント履歴）の閲覧ページを描画する。
+// データは base を再利用した静的シェルで、中身は JS が /api/archive・/api/history から取得する。
+func (h *Handler) handleHistoryPage(c *gin.Context) {
+	h.render(c, "history.html", http.StatusOK, viewData{Title: "Backlog board - 履歴"})
+}
+
+// handleAPIArchive は archive.jsonl の全エントリを ArchivedAt 降順（新しい順）で返す。
+func (h *Handler) handleAPIArchive(c *gin.Context) {
+	entries, err := h.events.ReadArchive()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].ArchivedAt > entries[j].ArchivedAt })
+	c.JSON(http.StatusOK, gin.H{"entries": entries})
+}
+
+// handleAPIHistory はイベント履歴を返す。
+//   - ?issue_id=N : その課題のイベントを全月横断で（新しい順）
+//   - ?month=YYYY-MM : その月のイベントを（新しい順）
+//   - パラメータ無し : 最新月のイベントを（新しい順）
+//
+// いずれも利用可能な月一覧 months を併せて返す。
+func (h *Handler) handleAPIHistory(c *gin.Context) {
+	months, err := h.events.ListEventMonths()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if idStr := c.Query("issue_id"); idStr != "" {
+		id, err := strconv.Atoi(idStr)
+		if err != nil || id <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid issue_id"})
+			return
+		}
+		evs, err := h.events.ReadEventsForIssue(id)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		sortEventsDesc(evs)
+		c.JSON(http.StatusOK, gin.H{"issue_id": id, "events": evs, "months": months})
+		return
+	}
+
+	month := c.Query("month")
+	if month != "" {
+		if !monthQueryPattern.MatchString(month) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid month (expected YYYY-MM)"})
+			return
+		}
+	} else if len(months) > 0 {
+		month = months[len(months)-1] // 最新月
+	}
+
+	evs := []backlog.Event{}
+	if month != "" {
+		evs, err = h.events.ReadEvents(month)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		sortEventsDesc(evs)
+	}
+	c.JSON(http.StatusOK, gin.H{"month": month, "events": evs, "months": months})
+}
+
+// sortEventsDesc はイベントを TS（RFC3339・同一オフセット前提）降順に並べる。
+// 同一 TS は安定（入力＝時系列順）のまま。
+func sortEventsDesc(evs []backlog.Event) {
+	sort.SliceStable(evs, func(i, j int) bool { return evs[i].TS > evs[j].TS })
 }
 
 func (h *Handler) handleRefresh(c *gin.Context) {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/rengotaku/backlog-board/internal/backlog"
 )
@@ -103,16 +104,89 @@ func (l *EventLog) appendLines(path string, lines [][]byte) error {
 // ReadEvents は events-<month>.jsonl を読み、壊れた行（途中書き込み等）はスキップして返す。
 // ファイル未作成時は空スライス。Phase 2 の遡上読取・テスト用。
 func (l *EventLog) ReadEvents(month string) ([]backlog.Event, error) {
-	path := filepath.Join(l.Dir, "events-"+month+".jsonl")
-	f, err := os.Open(path)
+	out := []backlog.Event{}
+	err := readJSONL(filepath.Join(l.Dir, "events-"+month+".jsonl"), func(line []byte) {
+		var e backlog.Event
+		if json.Unmarshal(line, &e) == nil {
+			out = append(out, e)
+		}
+	})
+	return out, err
+}
+
+// ReadArchive は archive.jsonl を読み、壊れた行はスキップして返す。未作成時は空スライス。
+func (l *EventLog) ReadArchive() ([]backlog.ArchiveEntry, error) {
+	out := []backlog.ArchiveEntry{}
+	err := readJSONL(filepath.Join(l.Dir, "archive.jsonl"), func(line []byte) {
+		var e backlog.ArchiveEntry
+		if json.Unmarshal(line, &e) == nil {
+			out = append(out, e)
+		}
+	})
+	return out, err
+}
+
+// ListEventMonths は events-YYYY-MM.jsonl の "YYYY-MM" 部分を昇順で返す。
+// history ディレクトリ未作成時は空スライス。
+func (l *EventLog) ListEventMonths() ([]string, error) {
+	entries, err := os.ReadDir(l.Dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []backlog.Event{}, nil
+			return []string{}, nil
 		}
 		return nil, err
 	}
+	months := []string{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		n := e.Name()
+		if strings.HasPrefix(n, "events-") && strings.HasSuffix(n, ".jsonl") {
+			months = append(months, strings.TrimSuffix(strings.TrimPrefix(n, "events-"), ".jsonl"))
+		}
+	}
+	sort.Strings(months)
+	return months, nil
+}
+
+// ReadEventsForIssue は全月ファイルを走査し、指定 issue_id のイベントだけを
+// 月昇順・各月内は追記（時系列）順で返す。並べ替えは呼び出し側に委ねる。
+func (l *EventLog) ReadEventsForIssue(issueID int) ([]backlog.Event, error) {
+	months, err := l.ListEventMonths()
+	if err != nil {
+		return nil, err
+	}
+	out := []backlog.Event{}
+	for _, m := range months {
+		evs, err := l.ReadEvents(m)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range evs {
+			if e.IssueID == issueID {
+				out = append(out, e)
+			}
+		}
+	}
+	return out, nil
+}
+
+// readJSONL は path を 1 行ずつ読み、空行を飛ばし、各行を onLine に渡す。
+// ファイル未作成は nil（エラーにしない）。壊れた行の扱いは onLine 側に委ねる
+// （Unmarshal 失敗を黙ってスキップする想定）。
+// 返り値の error はスキャナー I/O エラー（ファイル故障等）であり、行レベルの
+// パース失敗とは別物。渡される line は scanner の内部バッファ参照なので、
+// onLine は同期的に消費する（保持・goroutine 送出する場合は自前でコピーすること）。
+func readJSONL(path string, onLine func(line []byte)) error {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
 	defer f.Close()
-	var out []backlog.Event
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for sc.Scan() {
@@ -120,16 +194,9 @@ func (l *EventLog) ReadEvents(month string) ([]backlog.Event, error) {
 		if len(line) == 0 {
 			continue
 		}
-		var e backlog.Event
-		if err := json.Unmarshal(line, &e); err != nil {
-			continue // 壊れた行はスキップ（末尾の途中書き込み等）
-		}
-		out = append(out, e)
+		onLine(line)
 	}
-	if err := sc.Err(); err != nil {
-		return out, err
-	}
-	return out, nil
+	return sc.Err()
 }
 
 // monthBucket は RFC3339 タイムスタンプから "YYYY-MM" を取り出す。

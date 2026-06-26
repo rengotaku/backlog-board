@@ -104,6 +104,22 @@
     border-color: var(--fg-muted);
 }
 
+.nav-link {
+    border: 1px solid var(--border);
+    color: var(--fg-muted);
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1;
+    padding: 4px 8px;
+    margin-left: 4px;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.nav-link:hover {
+    color: var(--fg);
+    border-color: var(--fg-muted);
+}
+
 * { box-sizing: border-box; }
 
 body {

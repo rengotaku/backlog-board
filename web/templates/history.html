@@ -1,0 +1,243 @@
+{{template "base" .}}
+
+{{define "content"}}
+<style>
+.history-page { max-width: 980px; margin: 0 auto; }
+.history-page .back-link { display: inline-block; margin-bottom: 12px; color: var(--link); text-decoration: none; }
+.history-page .back-link:hover { text-decoration: underline; }
+.history-page h2 { font-size: 1.05rem; margin: 20px 0 10px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.history-page .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.history-page select, .history-page input[type="search"] {
+    background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 8px; font-size: 0.85rem;
+}
+.history-page .hint { color: var(--fg-muted); font-size: 0.8rem; }
+.history-page .empty { color: var(--fg-muted); font-style: italic; padding: 8px 0; }
+.ev-list, .ar-list { list-style: none; margin: 0; padding: 0; }
+.ev-item, .ar-item {
+    display: flex; gap: 10px; align-items: baseline; padding: 6px 0;
+    border-bottom: 1px solid var(--border); font-size: 0.88rem;
+}
+.ev-item .ts, .ar-item .ts { color: var(--fg-muted); font-size: 0.78rem; white-space: nowrap; min-width: 9.5em; }
+.ev-item .key, .ar-item .key { color: var(--link); text-decoration: none; white-space: nowrap; }
+.ev-item .key:hover, .ar-item .key:hover { text-decoration: underline; }
+.ev-item .summary, .ar-item .summary { flex: 1 1 auto; min-width: 0; }
+.badge-ev, .badge-reason {
+    display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 0.74rem;
+    border: 1px solid var(--border); white-space: nowrap;
+}
+.badge-ev[data-type="mention_received"] { color: var(--unhandled); }
+.badge-ev[data-type="mention_replied"] { color: var(--replied); }
+.badge-ev[data-type="mention_starred"] { color: var(--checked); }
+.badge-ev[data-type="status_changed"] { color: var(--link); }
+.ar-item .issue-btn {
+    background: none; border: 1px solid var(--border); color: var(--link);
+    border-radius: 6px; padding: 1px 8px; font-size: 0.76rem; cursor: pointer; white-space: nowrap;
+}
+.ar-item .issue-btn:hover { border-color: var(--link); }
+.ar-item .last-status { color: var(--fg-muted); font-size: 0.78rem; white-space: nowrap; }
+#issue-panel { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 8px; background: var(--bg-soft); }
+#issue-panel.hidden { display: none; }
+#issue-panel .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+#issue-panel .close-btn { background: none; border: none; color: var(--fg-muted); cursor: pointer; font-size: 1rem; }
+</style>
+
+<div class="history-page">
+    <a class="back-link" href="/">← ボードに戻る</a>
+
+    <section>
+        <h2>完了 / パス課題アーカイブ</h2>
+        <p class="hint">追跡対象（担当課題・カテゴリ取込・パス済み）から外れた課題の最終状態。新しい順。</p>
+        <ul class="ar-list" id="ar-list"></ul>
+        <p class="empty" id="ar-empty" hidden>アーカイブはまだありません。</p>
+    </section>
+
+    <section>
+        <h2>イベント履歴</h2>
+        <div class="controls">
+            <label>月 <select id="month-select"></select></label>
+            <label>課題ID <input type="search" id="issue-input" placeholder="例: 1234567" inputmode="numeric" autocomplete="off"></label>
+            <span class="hint" id="ev-context"></span>
+        </div>
+        <div id="issue-panel" class="hidden">
+            <div class="panel-head">
+                <strong id="issue-panel-title"></strong>
+                <button type="button" class="close-btn" id="issue-panel-close" title="閉じる">✕</button>
+            </div>
+            <ul class="ev-list" id="issue-ev-list"></ul>
+            <p class="empty" id="issue-ev-empty" hidden>この課題のイベントはありません。</p>
+        </div>
+        <ul class="ev-list" id="ev-list"></ul>
+        <p class="empty" id="ev-empty" hidden>イベントはまだありません。</p>
+    </section>
+</div>
+
+<script>
+(function () {
+    var EV_LABEL = {
+        mention_received: 'メンション受信',
+        mention_replied:  '返信',
+        mention_starred:  'スター',
+        status_changed:   'ステータス変更'
+    };
+    var REASON_LABEL = {
+        assigned_left:  '担当を外れた（完了/担当替え）',
+        category_left:  'カテゴリ対象外',
+        stale_left:     '対象外（完了）',
+        passed_cleared: 'パス解消'
+    };
+
+    function fmtTS(ts) {
+        if (!ts) return '';
+        var d = new Date(ts);
+        if (isNaN(d.getTime())) return ts;
+        return d.toLocaleString('ja-JP', { hour12: false });
+    }
+    function el(tag, cls, text) {
+        var e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text != null) e.textContent = text;
+        return e;
+    }
+    function evDescription(ev) {
+        if (ev.type === 'status_changed') {
+            return (ev.from || '?') + ' → ' + (ev.to || '?');
+        }
+        return '';
+    }
+    function renderEventItem(ev) {
+        var li = el('li', 'ev-item');
+        li.appendChild(el('span', 'ts', fmtTS(ev.ts)));
+        var b = el('span', 'badge-ev', EV_LABEL[ev.type] || ev.type);
+        b.setAttribute('data-type', ev.type);
+        li.appendChild(b);
+        if (ev.issue_key) li.appendChild(el('span', 'key', ev.issue_key));
+        var desc = evDescription(ev);
+        li.appendChild(el('span', 'summary', desc));
+        return li;
+    }
+    function renderEvents(listEl, emptyEl, events) {
+        listEl.textContent = '';
+        if (!events || events.length === 0) {
+            emptyEl.hidden = false;
+            return;
+        }
+        emptyEl.hidden = true;
+        events.forEach(function (ev) { listEl.appendChild(renderEventItem(ev)); });
+    }
+
+    function fetchJSON(url) {
+        return fetch(url, { cache: 'no-store' }).then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        });
+    }
+
+    // --- アーカイブ ---
+    function archiveURL(entry) {
+        var url = '';
+        if (entry.my_issue && entry.my_issue.issue_url) url = entry.my_issue.issue_url;
+        else if (entry.passed && entry.passed.issue_url) url = entry.passed.issue_url;
+        // a.href に流すため scheme を https に限定（javascript: 等の混入を防ぐ防衛線）。
+        return /^https:\/\//.test(url) ? url : '';
+    }
+    function renderArchive(entries) {
+        var list = document.getElementById('ar-list');
+        var empty = document.getElementById('ar-empty');
+        list.textContent = '';
+        if (!entries || entries.length === 0) { empty.hidden = false; return; }
+        empty.hidden = true;
+        entries.forEach(function (e) {
+            var li = el('li', 'ar-item');
+            li.appendChild(el('span', 'ts', fmtTS(e.archived_at)));
+            li.appendChild(el('span', 'badge-reason', REASON_LABEL[e.reason] || e.reason || ''));
+            var url = archiveURL(e);
+            if (e.issue_key && url) {
+                var a = el('a', 'key', e.issue_key);
+                a.href = url; a.target = '_blank'; a.rel = 'noopener';
+                li.appendChild(a);
+            } else if (e.issue_key) {
+                li.appendChild(el('span', 'key', e.issue_key));
+            }
+            li.appendChild(el('span', 'summary', e.issue_summary || ''));
+            if (e.last_status) li.appendChild(el('span', 'last-status', e.last_status));
+            if (e.issue_id > 0) {
+                var btn = el('button', 'issue-btn', '履歴');
+                btn.type = 'button';
+                btn.addEventListener('click', function () { loadIssue(e.issue_id, e.issue_key); });
+                li.appendChild(btn);
+            }
+            list.appendChild(li);
+        });
+    }
+
+    // --- 月別イベント ---
+    function loadMonth(month) {
+        var url = '/api/history' + (month ? ('?month=' + encodeURIComponent(month)) : '');
+        fetchJSON(url).then(function (data) {
+            document.getElementById('ev-context').textContent = data.month ? (data.month + ' のイベント') : '';
+            renderEvents(document.getElementById('ev-list'), document.getElementById('ev-empty'), data.events);
+        }).catch(function () {
+            document.getElementById('ev-context').textContent = '読み込みに失敗しました';
+        });
+    }
+    function populateMonths(months, selected) {
+        var sel = document.getElementById('month-select');
+        sel.textContent = '';
+        if (!months || months.length === 0) {
+            sel.appendChild(el('option', null, '（月なし）'));
+            sel.disabled = true;
+            return;
+        }
+        // 新しい月を上に
+        months.slice().reverse().forEach(function (m) {
+            var o = el('option', null, m); o.value = m;
+            if (m === selected) o.selected = true;
+            sel.appendChild(o);
+        });
+        sel.disabled = false;
+    }
+
+    // --- 課題別イベント ---
+    function loadIssue(issueID, issueKey) {
+        var panel = document.getElementById('issue-panel');
+        panel.classList.remove('hidden');
+        document.getElementById('issue-panel-title').textContent =
+            '課題 ' + (issueKey ? issueKey : ('#' + issueID)) + ' のイベント時系列';
+        fetchJSON('/api/history?issue_id=' + encodeURIComponent(issueID)).then(function (data) {
+            renderEvents(document.getElementById('issue-ev-list'),
+                         document.getElementById('issue-ev-empty'), data.events);
+        }).catch(function () {
+            renderEvents(document.getElementById('issue-ev-list'),
+                         document.getElementById('issue-ev-empty'), []);
+        });
+    }
+
+    document.getElementById('month-select').addEventListener('change', function () {
+        loadMonth(this.value);
+    });
+    document.getElementById('issue-input').addEventListener('keydown', function (ev) {
+        if (ev.key !== 'Enter') return;
+        var id = parseInt(this.value.trim(), 10);
+        if (id > 0) loadIssue(id, null);
+    });
+    document.getElementById('issue-panel-close').addEventListener('click', function () {
+        document.getElementById('issue-panel').classList.add('hidden');
+    });
+
+    // 初期ロード
+    fetchJSON('/api/history').then(function (data) {
+        populateMonths(data.months, data.month);
+        document.getElementById('ev-context').textContent = data.month ? (data.month + ' のイベント') : '';
+        renderEvents(document.getElementById('ev-list'), document.getElementById('ev-empty'), data.events);
+    }).catch(function () {
+        document.getElementById('ev-context').textContent = '読み込みに失敗しました';
+    });
+    fetchJSON('/api/archive').then(function (data) {
+        renderArchive(data.entries);
+    }).catch(function () {
+        document.getElementById('ar-empty').hidden = false;
+    });
+})();
+</script>
+{{end}}

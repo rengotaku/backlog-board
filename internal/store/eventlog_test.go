@@ -129,6 +129,84 @@ func TestEventLogReadMissingMonth(t *testing.T) {
 	}
 }
 
+func TestEventLogReadArchive(t *testing.T) {
+	dir := t.TempDir()
+	l := NewEventLog(filepath.Join(dir, "snapshot.json"))
+	entries := []backlog.ArchiveEntry{
+		{V: 1, ArchivedAt: "2026-06-26T09:00:00+09:00", Reason: backlog.ArchiveAssignedLeft, IssueID: 100, IssueKey: "X-1"},
+		{V: 1, ArchivedAt: "2026-06-26T10:00:00+09:00", Reason: backlog.ArchivePassedClear, IssueID: 300, IssueKey: "X-3"},
+	}
+	if err := l.AppendArchive(entries); err != nil {
+		t.Fatal(err)
+	}
+	got, err := l.ReadArchive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 archive entries, got %d", len(got))
+	}
+	// 未作成時は空。
+	got2, err := NewEventLog(filepath.Join(t.TempDir(), "snapshot.json")).ReadArchive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got2) != 0 {
+		t.Fatalf("expected empty archive, got %d", len(got2))
+	}
+}
+
+func TestEventLogListEventMonths(t *testing.T) {
+	dir := t.TempDir()
+	l := NewEventLog(filepath.Join(dir, "snapshot.json"))
+	events := []backlog.Event{
+		{V: 1, Type: "x", TS: "2026-07-01T09:00:00+09:00", Key: "a"},
+		{V: 1, Type: "x", TS: "2026-05-01T09:00:00+09:00", Key: "b"},
+		{V: 1, Type: "x", TS: "2026-06-01T09:00:00+09:00", Key: "c"},
+	}
+	if err := l.AppendEvents(events); err != nil {
+		t.Fatal(err)
+	}
+	months, err := l.ListEventMonths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"2026-05", "2026-06", "2026-07"}
+	if len(months) != len(want) {
+		t.Fatalf("expected %v, got %v", want, months)
+	}
+	for i := range want {
+		if months[i] != want[i] {
+			t.Fatalf("months not sorted ascending: got %v", months)
+		}
+	}
+}
+
+func TestEventLogReadEventsForIssue(t *testing.T) {
+	dir := t.TempDir()
+	l := NewEventLog(filepath.Join(dir, "snapshot.json"))
+	events := []backlog.Event{
+		{V: 1, Type: backlog.EventMentionReceived, TS: "2026-05-10T09:00:00+09:00", Key: "r1", IssueID: 100},
+		{V: 1, Type: backlog.EventStatusChanged, TS: "2026-06-10T09:00:00+09:00", Key: "s1", IssueID: 100, From: "未対応", To: "処理中"},
+		{V: 1, Type: backlog.EventMentionReceived, TS: "2026-06-11T09:00:00+09:00", Key: "r2", IssueID: 200},
+	}
+	if err := l.AppendEvents(events); err != nil {
+		t.Fatal(err)
+	}
+	got, err := l.ReadEventsForIssue(100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 events for issue 100 across months, got %d", len(got))
+	}
+	for _, e := range got {
+		if e.IssueID != 100 {
+			t.Fatalf("got event for wrong issue: %+v", e)
+		}
+	}
+}
+
 func TestEventLogEmptyIsNoop(t *testing.T) {
 	dir := t.TempDir()
 	l := NewEventLog(filepath.Join(dir, "snapshot.json"))

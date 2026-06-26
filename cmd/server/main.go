@@ -184,6 +184,7 @@ func run() error {
 		PostCommentStar:   postStarFn,
 		Priorities:        priorities,
 		Categories:        categories,
+		Events:            eventLog,
 	})
 
 	srv := &http.Server{
@@ -220,6 +221,7 @@ func run() error {
 func loadTemplates() (map[string]*template.Template, error) {
 	pages := []struct{ name, path string }{
 		{"index.html", "templates/index.html"},
+		{"history.html", "templates/history.html"},
 	}
 	m := make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
