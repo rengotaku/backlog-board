@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -73,9 +74,16 @@ func run() error {
 
 	var refreshFn func() error
 	var postStarFn func(commentID int) error
+	var unhandledPollFn func() (bool, error)
+	// fetchMu は refreshFn を直列化する。ticker / 軽量ポーリングのキック / HTTP ハンドラ
+	// （/api/refresh・/api/star・/api/categories）から並行に呼ばれ得るため、フル fetch の
+	// 同時実行（snapshot 競合・イベント二重 append）を防ぐ。
+	var fetchMu sync.Mutex
 	if apiKey != "" {
 		blClient := backlog.NewClient(cfg.Domain, apiKey)
 		refreshFn = func() error {
+			fetchMu.Lock()
+			defer fetchMu.Unlock()
 			// 直前の snapshot を comments cache 流用のために読み込む（無ければ nil で続行）。
 			prev, err := cache.Load()
 			if err != nil {
@@ -121,6 +129,38 @@ func run() error {
 		postStarFn = func(commentID int) error {
 			return blClient.PostCommentStar(commentID)
 		}
+		// 軽量ポーリング: Notifications を 1 コールだけ叩き、現 snapshot に無い未読の
+		// 未対応候補通知（自分以外の送信・コメント付き）があれば true を返す。
+		// フル fetch はしない（呼び出し側が必要時のみ refreshFn をキックする）。
+		unhandledPollFn = func() (bool, error) {
+			snap, err := cache.Load()
+			if err != nil {
+				return false, nil // snapshot 未作成時は定期フル fetch に委ねる
+			}
+			known := make(map[int64]bool, len(snap.Records))
+			for _, r := range snap.Records {
+				known[r.NotificationID] = true
+			}
+			notifs, err := blClient.Notifications(100, 0)
+			if err != nil {
+				return false, err
+			}
+			for _, n := range notifs {
+				if n.Comment == nil || n.Issue == nil {
+					continue
+				}
+				if n.AlreadyRead && n.ResourceAlreadyRead {
+					continue // 既読 = 既に検知済み
+				}
+				if n.Sender != nil && n.Sender.ID == snap.OwnUserID {
+					continue // 自分の操作由来
+				}
+				if !known[n.ID] {
+					return true, nil // snapshot に無い未読の未対応候補 = 新着
+				}
+			}
+			return false, nil
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -138,6 +178,34 @@ func run() error {
 				case <-ticker.C:
 					if err := refreshFn(); err != nil {
 						slog.Warn("periodic fetch failed", "error", err)
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+
+	// 未対応メンションの新着検知だけを高頻度で回す軽量ポーリング。
+	// Notifications 1 コールで新着候補を見つけたらフル fetch を即キックする
+	// （フル fetch の頻度・API コストは基本そのまま）。負値・nil で無効。
+	if unhandledPollFn != nil && refreshFn != nil && cfg.UnhandledPollInterval > 0 {
+		go func() {
+			ticker := time.NewTicker(cfg.UnhandledPollInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					newMention, err := unhandledPollFn()
+					if err != nil {
+						slog.Warn("unhandled poll failed", "error", err)
+						continue
+					}
+					if newMention {
+						slog.Info("new unhandled mention detected; triggering full fetch")
+						if err := refreshFn(); err != nil {
+							slog.Warn("triggered fetch failed", "error", err)
+						}
 					}
 				case <-ctx.Done():
 					return

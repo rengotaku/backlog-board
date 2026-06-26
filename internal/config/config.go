@@ -19,6 +19,11 @@ type Config struct {
 	CachePath       string        `toml:"cache_path"`
 	ShutdownTimeout time.Duration `toml:"shutdown_timeout"`
 	FetchInterval   time.Duration `toml:"fetch_interval"`
+	// UnhandledPollInterval は「未対応メンションの新着検知」専用の軽量ポーリング間隔。
+	// この間隔ごとに Notifications だけを 1 コール叩き、現 snapshot に無い未読の
+	// 未対応候補通知を見つけたら即フル fetch をキックする（フル fetch の頻度・API
+	// コストは基本そのまま）。デフォルト 1 分。負値で無効化。
+	UnhandledPollInterval time.Duration `toml:"unhandled_poll_interval"`
 	// AllowedLinkPrefixes はコメント本文中の [text](url) を <a href> として有効化する
 	// URL prefix の追加 allowlist。https://<Domain>/ は自動で許可されるため、ここには
 	// それ以外で許可したい外部 URL を列挙する。空の場合は外部 URL は無効化 (#) される。
@@ -49,6 +54,7 @@ const (
 	defaultPort              = "8082"
 	defaultShutdownTimeout   = 10 * time.Second
 	defaultFetchInterval     = 15 * time.Minute
+	defaultUnhandledPoll     = 1 * time.Minute
 	defaultNotificationPages = 3
 	maxNotificationPages     = 10
 )
@@ -105,6 +111,10 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.FetchInterval == 0 {
 		c.FetchInterval = defaultFetchInterval
+	}
+	// 0（未指定）はデフォルト 1 分。明示的な無効化は負値で行う。
+	if c.UnhandledPollInterval == 0 {
+		c.UnhandledPollInterval = defaultUnhandledPoll
 	}
 	if c.CachePath == "" {
 		home, err := os.UserHomeDir()
