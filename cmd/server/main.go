@@ -59,6 +59,7 @@ func run() error {
 	cache := store.New(cfg.CachePath)
 	priorities := store.NewPriorityStore(cfg.CachePath)
 	categories := store.NewCategoryStore(cfg.CachePath)
+	eventLog := store.NewEventLog(cfg.CachePath)
 	// categories.json が無ければ config 由来のシードで初期化（UI 変更後はファイルが SoT）。
 	if _, exists, lerr := categories.Load(); lerr != nil {
 		slog.Warn("load categories failed", "error", lerr)
@@ -102,6 +103,18 @@ func run() error {
 			}, prev)
 			if err != nil {
 				return err
+			}
+			// cold 層（イベント履歴 + 完了/パス課題アーカイブ）への追記はベストエフォート。
+			// 失敗しても fetch 本体（snapshot 保存）は止めない。snapshot 保存より前に追記するため、
+			// 「追記成功・保存前にクラッシュ → 再起動時の再 fetch」でのみ同一イベントが二重 append され得る
+			// （欠落はしない。重複は Event.Key で下流が dedup できる）。
+			if events, archived := backlog.DiffEvents(prev, snap); len(events) > 0 || len(archived) > 0 {
+				if aerr := eventLog.AppendEvents(events); aerr != nil {
+					slog.Warn("append events failed", "error", aerr)
+				}
+				if aerr := eventLog.AppendArchive(archived); aerr != nil {
+					slog.Warn("append archive failed", "error", aerr)
+				}
 			}
 			return cache.Save(snap)
 		}
