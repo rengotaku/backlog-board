@@ -1066,7 +1066,7 @@
     <span class="backlog-handle" aria-hidden="true" title="ドラッグで並べ替え">⠿</span>
     <span class="backlog-rank"></span>
     <a class="backlog-key key" href="{{.IssueURL}}" target="_blank" rel="noopener">{{.IssueKey}}</a>
-    <span class="backlog-title" title="{{.IssueSummary}}">{{if .Stale}}<span class="backlog-warn" title="Backlog 側でカテゴリ/担当から外れました（完了ではないため残しています）">⚠</span> {{end}}{{.IssueSummary}}</span>
+    <span class="backlog-title" title="{{.IssueSummary}}">{{if .Stale}}<span class="backlog-warn" title="Backlog 側でカテゴリ/担当から外れました（完了ではないため残しています）">⚠</span> {{end}}{{if .ParentKey}}<a class="backlog-parent" href="{{.ParentURL}}" target="_blank" rel="noopener" title="親課題: {{.ParentKey}}">↑{{.ParentKey}}</a> {{end}}{{.IssueSummary}}</span>
     {{if .IssueStatus}}<span class="issue-status" data-status="{{.IssueStatus}}">{{.IssueStatus}}</span>{{else}}<span class="backlog-empty-cell"></span>{{end}}
     {{if .DueDate}}<span class="backlog-due{{if .Overdue}} overdue{{end}}" title="期限">{{.DueDate}}{{if .Overdue}} ⚠{{end}}</span>{{else}}<span class="backlog-empty-cell"></span>{{end}}
     <template class="backlog-detail-data">

@@ -494,6 +494,9 @@ type myIssueView struct {
 	DescriptionHTML template.HTML
 	Stale           bool
 	Origin          string
+	// 親課題情報（親がある課題のみ）。ParentKey が空なら親なし扱い。
+	ParentKey string
+	ParentURL string
 }
 
 type recordView struct {
@@ -809,6 +812,8 @@ func (h *Handler) toMyIssueView(r backlog.MyIssueRecord, now time.Time) myIssueV
 		DescriptionHTML:       renderMarkdown(r.Description),
 		Stale:                 r.Stale,
 		Origin:                r.Origin,
+		ParentKey:             r.ParentIssueKey,
+		ParentURL:             r.ParentIssueURL,
 	}
 }
 
