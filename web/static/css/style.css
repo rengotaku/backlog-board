@@ -1106,24 +1106,6 @@ main {
     white-space: nowrap;
 }
 
-/* 親課題キーの前置チップ（親がある課題のみ） */
-.backlog-parent {
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 11px;
-    color: var(--fg-muted);
-    text-decoration: none;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 0 4px;
-    margin-right: 2px;
-    white-space: nowrap;
-}
-
-.backlog-parent:hover {
-    color: var(--link);
-    border-color: var(--link);
-}
-
 /* status は固定列内で左寄せ → 全行で左端が一致して揃う */
 .backlog-card .issue-status {
     justify-self: start;

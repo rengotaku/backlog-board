@@ -73,38 +73,3 @@ func TestHasReplyAfter(t *testing.T) {
 		})
 	}
 }
-
-func TestResolveParentsFromKnown(t *testing.T) {
-	c := &Client{Domain: "example.backlog.com"}
-	known := map[int]Issue{
-		100: {ID: 100, IssueKey: "DSC-100", Summary: "親課題"},
-	}
-	records := []MyIssueRecord{
-		{IssueID: 1, IssueKey: "DSC-1", ParentIssueID: 100},                            // known から解決
-		{IssueID: 2, IssueKey: "DSC-2", ParentIssueID: 100},                            // 同じ親（dedup）
-		{IssueID: 3, IssueKey: "DSC-3"},                                                // 親なし → 変化しない
-		{IssueID: 4, IssueKey: "DSC-4", ParentIssueID: 100, ParentIssueKey: "DSC-100"}, // 解決済み → 変化しない
-	}
-
-	c.resolveParents(records, known)
-
-	if records[0].ParentIssueKey != "DSC-100" {
-		t.Errorf("records[0] ParentIssueKey = %q, want DSC-100", records[0].ParentIssueKey)
-	}
-	wantURL := "https://example.backlog.com/view/DSC-100"
-	if records[0].ParentIssueURL != wantURL {
-		t.Errorf("records[0] ParentIssueURL = %q, want %q", records[0].ParentIssueURL, wantURL)
-	}
-	if records[0].ParentIssueSummary != "親課題" {
-		t.Errorf("records[0] ParentIssueSummary = %q, want 親課題", records[0].ParentIssueSummary)
-	}
-	if records[1].ParentIssueKey != "DSC-100" {
-		t.Errorf("records[1] ParentIssueKey = %q, want DSC-100 (dedup)", records[1].ParentIssueKey)
-	}
-	if records[2].ParentIssueKey != "" || records[2].ParentIssueURL != "" {
-		t.Errorf("records[2] should stay empty (no parent), got key=%q url=%q", records[2].ParentIssueKey, records[2].ParentIssueURL)
-	}
-	if records[3].ParentIssueURL != "" {
-		t.Errorf("records[3] already-resolved should not be touched, got url=%q", records[3].ParentIssueURL)
-	}
-}

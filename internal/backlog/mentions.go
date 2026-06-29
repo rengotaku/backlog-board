@@ -469,37 +469,6 @@ func basicIssueRecord(domain string, issue Issue, today string) MyIssueRecord {
 	return r
 }
 
-// resolveParents は ParentIssueID を持つが親キー未解決のレコードに対し、親課題の
-// IssueKey / Summary / URL を埋める。known に既取得の Issue があればそれを使い、無い分のみ
-// IssueByID で個別取得する（親 ID 単位で dedup）。
-func (c *Client) resolveParents(records []MyIssueRecord, known map[int]Issue) {
-	cache := map[int]*Issue{}
-	for i := range records {
-		pid := records[i].ParentIssueID
-		if pid <= 0 || records[i].ParentIssueKey != "" {
-			continue
-		}
-		p, seen := cache[pid]
-		if !seen {
-			if kp, ok := known[pid]; ok {
-				kpCopy := kp
-				p = &kpCopy
-			} else if fetched, err := c.IssueByID(pid); err == nil {
-				p = fetched
-			} else {
-				slog.Warn("parent issue fetch failed", "issue_id", pid, "error", err)
-			}
-			cache[pid] = p
-		}
-		if p == nil {
-			continue
-		}
-		records[i].ParentIssueKey = p.IssueKey
-		records[i].ParentIssueSummary = p.Summary
-		records[i].ParentIssueURL = fmt.Sprintf("https://%s/view/%s", c.Domain, p.IssueKey)
-	}
-}
-
 func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 	if opts.Count <= 0 {
 		opts.Count = 100
@@ -651,12 +620,6 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 			r.Origin = "category"
 			backlogExtra = append(backlogExtra, r)
 		}
-		// 親課題キーを解決（既取得の catIssues を優先、不足分のみ IssueByID）。
-		catByID := make(map[int]Issue, len(catIssues))
-		for _, iss := range catIssues {
-			catByID[iss.ID] = iss
-		}
-		c.resolveParents(backlogExtra, catByID)
 	}
 
 	// stale: priorities に居るが取込対象に無い課題。完了なら自動削除、それ以外は警告付きで残す。
@@ -679,7 +642,6 @@ func Fetch(c *Client, opts FetchOptions, prev *Snapshot) (*Snapshot, error) {
 		r.Stale = true
 		backlogStale = append(backlogStale, r)
 	}
-	c.resolveParents(backlogStale, nil)
 
 	passedActs, err := c.UserActivities(me.ID, 100, 2, 3)
 	if err != nil {

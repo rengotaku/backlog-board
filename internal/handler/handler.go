@@ -494,9 +494,6 @@ type myIssueView struct {
 	DescriptionHTML template.HTML
 	Stale           bool
 	Origin          string
-	// 親課題情報（親がある課題のみ）。ParentKey が空なら親なし扱い。
-	ParentKey string
-	ParentURL string
 }
 
 type recordView struct {
@@ -812,8 +809,6 @@ func (h *Handler) toMyIssueView(r backlog.MyIssueRecord, now time.Time) myIssueV
 		DescriptionHTML:       renderMarkdown(r.Description),
 		Stale:                 r.Stale,
 		Origin:                r.Origin,
-		ParentKey:             r.ParentIssueKey,
-		ParentURL:             r.ParentIssueURL,
 	}
 }
 
@@ -916,6 +911,7 @@ func (h *Handler) buildMyIssueKanban(snap *backlog.Snapshot, now time.Time) []my
 // ドラッグで rest の課題を top に引き上げ、保存すると次回から top に昇格する。
 func (h *Handler) buildMyIssueBacklog(snap *backlog.Snapshot, order []int, now time.Time) (top, rest []myIssueView) {
 	// My Backlog の対象 = 担当課題 ∪ カテゴリ取込 ∪ stale 残留。先勝ちで dedup。
+	// 親課題を持つ子チケットは一律で除外する（トップレベル課題のみ表示）。
 	sources := make([]backlog.MyIssueRecord, 0,
 		len(snap.MyIssues)+len(snap.BacklogExtra)+len(snap.BacklogStale))
 	sources = append(sources, snap.MyIssues...)
@@ -924,6 +920,9 @@ func (h *Handler) buildMyIssueBacklog(snap *backlog.Snapshot, order []int, now t
 	byID := make(map[int]backlog.MyIssueRecord, len(sources))
 	allRecs := make([]backlog.MyIssueRecord, 0, len(sources))
 	for _, r := range sources {
+		if r.ParentIssueID > 0 {
+			continue // 子チケットは表示しない
+		}
 		if _, ok := byID[r.IssueID]; ok {
 			continue
 		}
