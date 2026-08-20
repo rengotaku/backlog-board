@@ -16,11 +16,17 @@ Backlog のベル通知（自分宛メンション）と担当チケットをロ
 
    `~/.config/backlog-board/config.toml` が作成される（既存ならスキップ）。`domain` を自分の Backlog スペースに書き換える。
 
-2. `~/.zshenv` 等で API キーを export:
+2. API キーを password-store に登録（平文でディスクに置かない）:
 
    ```bash
-   export BACKLOG_API_KEY="..."
+   brew install pass pinentry-mac
+   printf 'pinentry-program /opt/homebrew/bin/pinentry-mac\n' >> ~/.gnupg/gpg-agent.conf
+   gpg --full-generate-key            # 未作成なら。パスフレーズは初回に Keychain へ保存
+   pass init <GPG の鍵 ID / メール>
+   pass insert -m backlog-board/BACKLOG_API_KEY   # 貼り付けて Ctrl-D
    ```
+
+   `make secrets` が復号できることを確認する（値は表示しない）。
 
 3. ビルド & 起動:
 
@@ -62,7 +68,7 @@ Backlog のベル通知（自分宛メンション）と担当チケットをロ
 
 | 変数 | デフォルト | 用途 |
 |---|---|---|
-| `BACKLOG_API_KEY` | （必須） | Backlog API キー |
+| `BACKLOG_API_KEY` | （必須） | Backlog API キー。**平文で置かず** `pass` の `backlog-board/BACKLOG_API_KEY` から実行時に注入する（`make run` / `scripts/launchd-exec.zsh`） |
 | `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARN` / `ERROR` |
 | `BACKLOG_BOARD_CONFIG` | _(未設定)_ | 設定ファイルのパスを上書き（テスト用） |
 
@@ -73,8 +79,12 @@ Backlog のベル通知（自分宛メンション）と担当チケットをロ
 ./scripts/uninstall-launchd.sh  # 解除
 ```
 
-`install-launchd.sh` は `~/.zshenv` 由来の `BACKLOG_API_KEY` を plist に inject する。
-ログは `~/Library/Logs/backlog-board/`。
+plist に API キーは焼き込まない。LaunchAgent は `scripts/launchd-exec.zsh` を起動し、
+ラッパーが `pass` から復号して環境変数として server に渡す（復号失敗・空値なら起動しない fail-closed）。
+`install-launchd.sh` も登録前に復号可否を確認する。ログは `~/Library/Logs/backlog-board/`。
+
+gpg-agent のキャッシュが冷えているとログイン直後の起動で pinentry が出る。パスフレーズを
+macOS Keychain に保存しておくと無人で復号できる（`ThrottleInterval=60` で再試行間隔を確保している）。
 
 ## ディレクトリ構成
 
@@ -88,7 +98,7 @@ backlog-board/
 │   ├── handler/          # gin ハンドラ + index 描画
 │   └── store/            # snapshot.json read/write
 ├── launchd/              # plist テンプレート (__HOME__ 置換あり)
-├── scripts/              # install/uninstall-launchd.sh
+├── scripts/              # install/uninstall-launchd.sh, launchd-exec.zsh (pass 経由の起動ラッパー)
 ├── web/
 │   ├── embed.go          # templates / static 埋め込み
 │   ├── static/css/       # 素の CSS（Tailwind なし）

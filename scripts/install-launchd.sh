@@ -15,20 +15,34 @@ LAUNCHCTL="$(command -v launchctl || true)"
 
 mkdir -p "$DEST_DIR" "$LOG_DIR"
 
-# BACKLOG_API_KEY は ~/.zshenv 等で export されている前提だが、
-# launchd は GUI セッションの env を継承しないため、明示的に inject する。
-KEY_FROM_SHELL="$(zsh -ic 'print -r -- ${BACKLOG_API_KEY:-}' 2>/dev/null || true)"
+# API キーは plist に焼き込まない。
+# scripts/launchd-exec.zsh が起動時に password-store から取得する。
+# ここでは fail-closed に「復号できて空でないこと」だけを確認する（値は表示しない）。
+PASS_NS="backlog-board"
+PASS_ENTRY="$PASS_NS/BACKLOG_API_KEY"
 
-if [[ -z "$KEY_FROM_SHELL" ]]; then
-    echo "ERROR: BACKLOG_API_KEY not found in shell env. Set it in ~/.zshenv before installing." >&2
+if ! command -v pass >/dev/null 2>&1; then
+    echo "ERROR: pass not found. brew install pass pinentry-mac" >&2
     exit 1
 fi
+
+PROBE_DIR="$(mktemp -d -t backlog-board-XXXXXX)"
+trap 'rm -rf "$PROBE_DIR"' EXIT
+PROBE_FILE="$PROBE_DIR/probe"
+if ! pass "$PASS_ENTRY" > "$PROBE_FILE" 2>/dev/null; then
+    echo "ERROR: $PASS_ENTRY の復号に失敗しました。gpg-agent と password-store を確認してください。" >&2
+    exit 1
+fi
+if [[ ! -s "$PROBE_FILE" ]]; then
+    echo "ERROR: $PASS_ENTRY が空です。空の API キーでは Backlog 認証が黙って全滅します。" >&2
+    exit 1
+fi
+rm -f "$PROBE_FILE"
 
 render_plist() {
     local src="$1" dest="$2"
     sed -e "s|__HOME__|$HOME|g" \
         -e "s|__PROJECT__|$PROJECT_DIR|g" \
-        -e "s|__BACKLOG_API_KEY__|$KEY_FROM_SHELL|g" \
         "$src" > "$dest"
     chmod 600 "$dest"
 }
