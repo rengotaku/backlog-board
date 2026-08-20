@@ -1,4 +1,7 @@
-.PHONY: setup build run stop status lint test test-cov check ci clean help
+.PHONY: setup secrets build run stop status lint test test-cov check ci clean help
+
+PASS_NS := backlog-board
+PASS_ENTRY := $(PASS_NS)/BACKLOG_API_KEY
 
 .DEFAULT_GOAL := help
 
@@ -25,20 +28,31 @@ setup:
 	@chmod 600 $(CONFIG_FILE)
 	@go mod download
 	@go mod tidy
-	@if [ -z "$$BACKLOG_API_KEY" ]; then \
-		echo ""; \
-		echo "WARN: BACKLOG_API_KEY が未設定です"; \
-		echo "  ~/.zshenv 等で export BACKLOG_API_KEY=\"...\" を追加してください"; \
-	fi
+	@$(MAKE) --no-print-directory secrets || true
+
+## secrets: API キーが password-store から復号できるか確認（fail-closed ガード）
+secrets:
+	@command -v pass >/dev/null 2>&1 \
+		|| { echo "ERROR: pass が見つかりません。brew install pass pinentry-mac"; exit 1; }
+	@d=$$(mktemp -d -t backlog-board-XXXXXX); \
+		trap 'rm -rf "$$d"' EXIT; \
+		pass "$(PASS_ENTRY)" > "$$d/key" 2>/dev/null \
+			|| { echo "ERROR: $(PASS_ENTRY) の復号に失敗。gpg-agent と password-store を確認"; exit 1; }; \
+		test -s "$$d/key" \
+			|| { echo "ERROR: $(PASS_ENTRY) が空。空の API キーでは Backlog 認証が全滅します"; exit 1; }; \
+		echo "secrets: $(PASS_ENTRY) OK"
 
 ## build: server をビルド
 build:
 	@mkdir -p $(BINARY_DIR)
 	go build -o $(SERVER_BIN) ./cmd/server
 
-## run: server を起動 (PORT=8082)
-run:
-	go run ./cmd/server
+## run: server を起動 (PORT=8082)。API キーは password-store から実行時に注入する
+run: secrets
+	@d=$$(mktemp -d -t backlog-board-XXXXXX); \
+		trap 'rm -rf "$$d"' EXIT; \
+		pass "$(PASS_ENTRY)" > "$$d/key"; \
+		BACKLOG_API_KEY="$$(head -n 1 "$$d/key")" go run ./cmd/server
 
 ## stop: PORT を握っているプロセスを kill
 stop:

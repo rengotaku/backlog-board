@@ -5,15 +5,14 @@
     <key>Label</key>
     <string>com.user.backlog-board.server</string>
 
+    <!-- 秘密を plist に焼き込まない。ラッパーが起動時に pass から取得する -->
     <key>ProgramArguments</key>
     <array>
-        <string>__PROJECT__/bin/backlog-board-server</string>
+        <string>__PROJECT__/scripts/launchd-exec.zsh</string>
     </array>
 
     <key>EnvironmentVariables</key>
     <dict>
-        <key>BACKLOG_API_KEY</key>
-        <string>__BACKLOG_API_KEY__</string>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
@@ -22,6 +21,9 @@
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <!-- 復号失敗時にタイトな再起動ループにしない -->
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
 
     <key>StandardOutPath</key>
     <string>__HOME__/Library/Logs/backlog-board/server.out.log</string>
